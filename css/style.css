@@ -189,6 +189,7 @@ section > .dica { color: var(--on-bg-muted); } /* dica direto no fundo verde; de
   font-weight: 600;
   box-shadow: var(--sombra);
 }
+.lista-nomes button.confirma-nome { background: var(--vermelho); color: #fff; text-align: center; }
 .lista-nomes button.novo { background: transparent; color: #fff; border: 2px dashed rgba(255, 255, 255, .6); box-shadow: none; }
 
 .ola { margin: 6px 0 0; color: var(--on-bg); }

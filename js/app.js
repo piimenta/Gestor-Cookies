@@ -291,8 +291,10 @@ function abrirNome(depois, sugestao) {
   const login = loginLigado();
   $('nome-titulo').textContent = login ? 'Qual é o seu nome?' : 'Quem é você?';
   $('dica-nome').textContent = login
-    ? 'Toque no seu nome. Ele fica ligado à sua conta Google (é só uma vez). Não está na lista? Digite seu nome completo e toque em “Não estou na lista”.'
+    ? 'Digite o nome que vai aparecer na sua conta. Ele fica ligado à sua conta Google (é só uma vez).'
     : 'Comece a digitar e toque no seu nome. Não está na lista? Digite o nome completo e toque em “Não estou na lista”.';
+  $('busca-nome').placeholder = login ? 'Seu nome e sobrenome' : 'Digite seu nome…';
+  $('busca-nome').type = login ? 'text' : 'search';
   $('busca-nome').value = sugestao || '';
   renderNomes();
   $('busca-nome').focus();
@@ -300,6 +302,14 @@ function abrirNome(depois, sugestao) {
 
 function renderNomes() {
   const q = $('busca-nome').value;
+  if (loginLigado()) {
+    // com login não tem lista: a pessoa só confirma o nome digitado
+    const d = limparNome(q);
+    $('lista-nomes').innerHTML = d.length >= 2
+      ? `<li><button type="button" class="confirma-nome" data-novo="1">✅ Continuar como “${esc(d)}”</button></li>`
+      : '';
+    return;
+  }
   const nq = semAcento(q);
   const pessoas = state.init?.pessoas || [];
   let lista = nq ? pessoas.filter(p => semAcento(p).includes(nq)) : pessoas.length <= 12 ? pessoas : [];

@@ -103,8 +103,10 @@ marque "Gráficos de plano de fundo" se o fundo verde não aparecer.
 ## Login com Google (opcional, recomendado)
 
 Com o login ligado, cada pessoa entra com a conta Google e **só consegue registrar e ver a própria conta**:
-ninguém mais usa o nome de outro. Na primeira vez no celular ela escolhe o nome na lista (fica ligado ao
-e-mail); depois o site já abre logado (180 dias). Enquanto não fizer este passo, o site funciona como antes.
+ninguém mais usa o nome de outro. Na primeira vez no celular ela digita o nome que quiser (o do Google já vem
+preenchido) e ele fica ligado ao e-mail; depois o site já abre logado (180 dias). A lista de nomes deixa de
+aparecer, e não dá para usar um nome que já existe na planilha (para clientes antigos, use **Reservar e-mail**
+no painel). Enquanto não fizer este passo, o site funciona como antes.
 
 1. **Criar o "Client ID" no Google Cloud** (grátis), em https://console.cloud.google.com:
    1. Crie um projeto (ex.: `Cookies`).
@@ -125,8 +127,9 @@ e-mail); depois o site já abre logado (180 dias). Enquanto não fizer este pass
 3. Pronto: abra o site e vai aparecer **Continuar com Google**.
 
 **No painel**, cada cliente mostra o e-mail ligado (🔒). No histórico da pessoa:
-- **🔒 Reservar e-mail Google**: liga o nome a um e-mail *antes* de a pessoa entrar. Assim ninguém pega
-  o nome dela, e ela já cai direto na conta. Recomendado para todo mundo da lista.
+- **🔒 Reservar e-mail Google**: liga o nome a um e-mail *antes* de a pessoa entrar; ela já cai direto na
+  conta dela. **Necessário para quem já era cliente antes do login** (ex.: já tem compras), porque um nome que
+  já existe não pode ser digitado de novo.
 - **🔓 Desvincular Google**: se alguém escolheu o nome errado; no próximo login escolhe de novo.
 
 Para desligar o login, apague a propriedade `GOOGLE_CLIENT_ID`.

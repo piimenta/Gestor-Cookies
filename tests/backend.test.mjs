@@ -475,19 +475,19 @@ test('login: fluxo completo — entrar, escolher nome, registrar, ver saldo, pag
   // sem escolher nome ainda
   assert.equal(call('saldo', { sessao: l.sessao }).code, 'sem_nome');
 
-  assert.equal(ok('vincular', { sessao: l.sessao, nome: 'Fulano' }).nome, 'Fulano');
-  assert.equal(tabela('Pessoas').find(p => p.nome === 'Fulano').email, 'ana@gmail.com');
-  assert.deepEqual(ok('init').pessoas, []); // Fulano já tem dono: some da lista
+  assert.deepEqual(ok('init').pessoas, []); // com login, a lista de nomes não é enviada
+  assert.equal(ok('vincular', { sessao: l.sessao, nome: '  Ana  Souza ' }).nome, 'Ana Souza');
+  assert.equal(tabela('Pessoas').find(p => p.nome === 'Ana Souza').email, 'ana@gmail.com');
 
   // o "nome" enviado é ignorado: vale o da sessão
   const r = ok('registrar', { sessao: l.sessao, nome: 'Outra Pessoa', itens: [{ sabor_id: 'mm', qtd: 1 }], device_id: DEV });
-  assert.equal(r.nome, 'Fulano');
+  assert.equal(r.nome, 'Ana Souza');
   assert.equal(ok('saldo', { sessao: l.sessao, nome: 'Outra Pessoa' }).saldo, 12);
   assert.equal(ok('jaPaguei', { sessao: l.sessao, valor: 12 }).pendente, 12);
   assert.ok(!tabela('Pessoas').some(p => p.nome === 'Outra Pessoa'));
 
   // novo login no mesmo e-mail já volta com o nome
-  assert.equal(ok('login', { credential: tokenGoogle({ email: 'ana@gmail.com' }) }).nome, 'Fulano');
+  assert.equal(ok('login', { credential: tokenGoogle({ email: 'ana@gmail.com' }) }).nome, 'Ana Souza');
 });
 
 test('login: sem sessão (ou sessão adulterada/expirada) não registra nada', () => {
@@ -520,14 +520,18 @@ test('login: token do Google inválido, de outro app, não verificado ou vencido
   assert.match(call('login', { credential: 'nao-e-jwt' }).error, /inválido/);
 });
 
-test('login: ninguém pega um nome que já tem dono, nem desfaz registro dos outros', () => {
+test('login: ninguém assume um nome que já existe, nem desfaz registro dos outros', () => {
   const { ok, call } = criarAmbiente({ clientId: CLIENT_ID });
   const ana = ok('login', { credential: tokenGoogle({ email: 'ana@gmail.com' }) }).sessao;
   const bia = ok('login', { credential: tokenGoogle({ email: 'bia@gmail.com' }) }).sessao;
-  ok('vincular', { sessao: ana, nome: 'Fulano' });
-  assert.match(call('vincular', { sessao: bia, nome: ' fulano ' }).error, /já está ligado a outra conta/);
+  // "Fulano" já existe na planilha (sem e-mail, ex.: cliente antigo com dívida): não dá pra assumir
+  const f = call('vincular', { sessao: ana, nome: 'FULANO' });
+  assert.equal(f.code, 'nome_existe');
+  assert.match(f.error, /Já existe alguém com o nome "Fulano"/);
+  ok('vincular', { sessao: ana, nome: 'Ana' });
+  assert.equal(call('vincular', { sessao: bia, nome: ' ana ' }).code, 'nome_existe');
   // quem já tem nome não troca vinculando outro
-  assert.equal(ok('vincular', { sessao: ana, nome: 'Outro Nome' }).nome, 'Fulano');
+  assert.equal(ok('vincular', { sessao: ana, nome: 'Outro Nome' }).nome, 'Ana');
 
   ok('vincular', { sessao: bia, nome: 'Bia' });
   const r = ok('registrar', { sessao: ana, itens: [{ sabor_id: 'mm', qtd: 1 }], device_id: DEV });
@@ -537,8 +541,8 @@ test('login: ninguém pega um nome que já tem dono, nem desfaz registro dos out
 
 test('login: admin vê o e-mail e consegue desvincular', () => {
   const { ok, call, tabela } = criarAmbiente({ clientId: CLIENT_ID });
+  ok('adminVincularEmail', { pin: PIN, nome: 'Fulano', email: 'ana@gmail.com' });
   const s = ok('login', { credential: tokenGoogle({ email: 'ana@gmail.com' }) }).sessao;
-  ok('vincular', { sessao: s, nome: 'Fulano' });
   assert.equal(ok('adminResumo', { pin: PIN }).clientes.find(c => c.nome === 'Fulano').email, 'ana@gmail.com');
   assert.equal(ok('adminHistorico', { pin: PIN, nome: 'Fulano' }).email, 'ana@gmail.com');
 
@@ -554,9 +558,10 @@ test('login: planilha antiga (sem coluna email) ganha a coluna sozinha', () => {
   pessoas.data = pessoas.data.map(r => r.slice(0, 3)); // simula a aba criada antes do login existir
   assert.deepEqual(pessoas.data[0], ['nome', 'criado_em', 'origem']);
   const s = ok('login', { credential: tokenGoogle({ email: 'ana@gmail.com' }) }).sessao;
-  ok('vincular', { sessao: s, nome: 'Fulano' });
+  ok('vincular', { sessao: s, nome: 'Ana Nova' });
   assert.deepEqual(pessoas.data[0], ['nome', 'criado_em', 'origem', 'email']);
-  assert.equal(pessoas.get(2, 4), 'ana@gmail.com');
+  assert.deepEqual(pessoas.data[2], [pessoas.data[2][0], pessoas.data[2][1], 'auto', 'ana@gmail.com']);
+  assert.equal(pessoas.get(3, 1), 'Ana Nova');
 
   // setup() numa planilha antiga também acrescenta a coluna, sem apagar nada
   const regs = ss.getSheetByName('Registros');
@@ -568,9 +573,8 @@ test('login: planilha antiga (sem coluna email) ganha a coluna sozinha', () => {
 test('login: admin reserva o nome para um e-mail; a pessoa entra direto na conta dela', () => {
   const { ok, call } = criarAmbiente({ clientId: CLIENT_ID });
   ok('adminVincularEmail', { pin: PIN, nome: 'Fulano', email: ' Ana@Gmail.com ' });
-  assert.deepEqual(ok('init').pessoas, []); // ninguém mais consegue escolher "Fulano"
   const intruso = ok('login', { credential: tokenGoogle({ email: 'intruso@gmail.com' }) }).sessao;
-  assert.match(call('vincular', { sessao: intruso, nome: 'Fulano' }).error, /outra conta/);
+  assert.equal(call('vincular', { sessao: intruso, nome: 'Fulano' }).code, 'nome_existe');
   assert.equal(ok('login', { credential: tokenGoogle({ email: 'ana@gmail.com' }) }).nome, 'Fulano');
 
   assert.match(call('adminVincularEmail', { pin: PIN, nome: 'Outro', email: 'ana@gmail.com' }).error, /já está ligado a "Fulano"/);
@@ -602,7 +606,7 @@ test('painel Google: só as contas da lista entram; a sessão de admin abre o pa
   assert.ok(Array.isArray(ok('adminResumo', { admin_sessao: a.admin_sessao }).clientes));
   const b = ok('adminLogin', { credential: tokenGoogle({ email: 'SOCIA@gmail.com' }) });
   ok('adminAdicionarPessoa', { admin_sessao: b.admin_sessao, nome: 'Zeca' });
-  assert.ok(ok('init').pessoas.includes('Zeca'));
+  assert.ok(ok('adminResumo', { admin_sessao: b.admin_sessao }).clientes.some(c => c.nome === 'Zeca'));
 });
 
 test('painel Google: sessão de cliente não abre o painel e sessão de admin não vira cliente', () => {

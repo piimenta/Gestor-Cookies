@@ -93,8 +93,8 @@ function actionInit_() {
     titulo: String(c.titulo || 'Cookies'),
     subtitulo: String(c.subtitulo || ''),
     sabores: sabores_(true).map(s => ({ id: s.id, nome: s.nome, preco: s.preco, emoji: s.emoji })),
-    // com login, só aparecem os nomes que ainda não estão ligados a uma conta Google
-    pessoas: pessoas_().filter(p => !cid || !p.email).map(p => p.nome).sort((a, b) => a.localeCompare(b, 'pt-BR')),
+    // com login a lista de nomes não é enviada (cada um digita o próprio nome, que fica ligado à conta Google)
+    pessoas: cid ? [] : pessoas_().map(p => p.nome).sort((a, b) => a.localeCompare(b, 'pt-BR')),
     login: cid ? { client_id: cid } : null,
     admin_google: adminGoogleAtivo_(), // o painel diz se mostra "Continuar com Google" ou o PIN
     pix: {
@@ -233,7 +233,11 @@ function actionLogin_(req) {
   return { sessao: criarSessao_(g.email), email: g.email, nome: p ? p.nome : null, nome_google: g.nome };
 }
 
-/** Primeira vez: liga o e-mail da sessão a um nome da lista (ou cria um nome novo). */
+/**
+ * Primeira vez: a pessoa digita o nome que quiser e ele fica ligado ao e-mail da sessão.
+ * Nome que já existe na planilha não pode ser "assumido" (seria a conta de outra pessoa):
+ * para clientes antigos, o admin reserva o e-mail pelo painel e a pessoa já entra direto.
+ */
 function actionVincular_(req) {
   const email = emailDaSessao_(req.sessao);
   const nome = validName_(req.nome);
@@ -244,12 +248,7 @@ function actionVincular_(req) {
     const t = readTable_('Pessoas');
     const k = key_(nome);
     const linha = t.rows.find(p => key_(p.nome) === k);
-    if (linha && String(linha.email || '').trim()) fail_('Esse nome já está ligado a outra conta Google. Fala comigo!');
-    if (linha) {
-      setField_(t, linha, 'email', email);
-      SpreadsheetApp.flush();
-      return { nome: cleanName_(linha.nome) };
-    }
+    if (linha) fail_('Já existe alguém com o nome "' + cleanName_(linha.nome) + '". Usa outro (ex.: com sobrenome) ou fala comigo pra ligar à sua conta.', 'nome_existe');
     appendRows_(t, [{ nome: nome, criado_em: new Date(), origem: 'auto', email: email }]);
     SpreadsheetApp.flush();
     return { nome: nome };
