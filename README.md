@@ -137,13 +137,26 @@ Os nomes são comparados sem diferenciar maiúsculas/minúsculas e ignorando esp
 
 ---
 
-## Desenvolvimento
-
-Sem build. Para ver localmente, sirva a pasta com qualquer servidor estático (os `import` de módulo não funcionam em `file://`):
+## Teste local (sem Google)
 
 ```bash
-python3 -m http.server 8000   # http://localhost:8000
+npm run dev        # http://localhost:8000  (precisa só do Node 18+)
 ```
+
+Enquanto `js/config.js` não tiver a URL real, o site entra no **modo teste**: uma faixa amarela no topo avisa,
+e o próprio `apps-script/Code.gs` roda dentro do navegador com uma planilha falsa guardada no `localStorage`
+(com algumas pessoas e compras de exemplo). Dá para testar tudo: registrar, desfazer, Pix, "Já paguei", painel.
+
+- PIN do painel no modo teste: **1234**
+- **Zerar dados** (na faixa amarela) apaga tudo e recomeça com os exemplos.
+- No celular, na mesma rede Wi-Fi: use o endereço que o `npm run dev` mostra, com `?demo` no final.
+- Com a URL real já configurada, `http://localhost:8000/?demo` ainda força o modo teste.
+
+O modo teste (`js/demo.js`) e o `tools/` não vão para a Vercel (`.vercelignore`).
+
+## Desenvolvimento
+
+Sem build. Não abra os `.html` direto pelo arquivo (`file://`): os `import` de módulo só funcionam via servidor (`npm run dev`).
 
 Testes (Node 18+): gerador do Pix (CRC16, campos EMV) e o `Code.gs` rodando sobre uma planilha falsa em memória
 (saldo, desfazer, PIN, validações, preço congelado).
@@ -161,7 +174,9 @@ npm test
 │   ├── pix.js       BR Code Pix estático (EMV + CRC16-CCITT-FALSE)
 │   ├── qr.js        QR em SVG (lib qrcode-generator via CDN)
 │   ├── app.js       tela do cliente
-│   └── admin.js     painel
+│   ├── admin.js     painel
+│   └── demo.js      modo teste local (API falsa no navegador)
 ├── apps-script/Code.gs   backend (colar no Apps Script)
+├── tools/serve.mjs       servidor local (npm run dev)
 └── tests/
 ```

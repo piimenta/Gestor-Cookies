@@ -2,12 +2,19 @@ import { API_URL } from './config.js';
 
 const TIMEOUT_MS = 25000; // o Apps Script às vezes demora para "acordar"
 
+const apiConfigurada = !!API_URL && API_URL.startsWith('https://');
+const local = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+/** Modo teste local (js/demo.js): em localhost sem URL configurada, ou forçado com ?demo na URL. */
+export const modoDemo = new URLSearchParams(location.search).has('demo') || (local && !apiConfigurada);
+const demo = modoDemo ? import('./demo.js') : null; // carrega já, para o aviso aparecer de cara
+
 /**
  * Chama a API do Apps Script.
  * IMPORTANTE: não definir Content-Type. Vai como text/plain (simple request, sem preflight CORS).
  */
 export async function api(action, payload = {}) {
-  if (!API_URL || !API_URL.startsWith('https://')) {
+  if (demo) return (await demo).demoApi(action, payload);
+  if (!apiConfigurada) {
     throw new Error('API não configurada (edite js/config.js).');
   }
   const ctrl = new AbortController();

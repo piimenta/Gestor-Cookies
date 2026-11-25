@@ -1,4 +1,6 @@
 apps-script/
 tests/
+tools/
+js/demo.js
 README.md
 package.json
