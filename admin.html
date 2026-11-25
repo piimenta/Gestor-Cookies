@@ -19,6 +19,7 @@
     <svg class="rabisco" viewBox="0 0 180 14" aria-hidden="true"><path d="M3 8 Q 13 1 23 8 T 43 8 T 63 8 T 83 8 T 103 8 T 123 8 T 143 8 T 163 8 T 177 7"/></svg>
     <div class="topo-acoes" id="topo-acoes" hidden>
       <button type="button" class="pill" id="btn-atualizar">🔄 Atualizar</button>
+      <a class="pill" href="qr.html" target="_blank" rel="noopener">🖨️ Cartaz</a>
       <button type="button" class="pill" id="btn-sair">Sair</button>
     </div>
   </header>
@@ -59,6 +60,25 @@
       <div class="card">
         <h2>Quem está devendo</h2>
         <div id="devedores"></div>
+      </div>
+
+      <div class="card">
+        <h2>Clientes</h2>
+        <form class="linha-form" id="form-cliente">
+          <input id="novo-cliente" class="campo" placeholder="Nome do cliente novo" maxlength="40" autocomplete="off"
+                 autocapitalize="words" aria-label="Nome do cliente novo" required>
+          <button class="btn btn-sm" id="btn-add-cliente">➕ Adicionar</button>
+        </form>
+        <details id="box-clientes">
+          <summary id="resumo-clientes">Todos os clientes</summary>
+          <div id="clientes"></div>
+        </details>
+      </div>
+
+      <div class="card">
+        <h2>Limpeza</h2>
+        <p class="dica">Apaga da planilha as compras <strong>canceladas</strong> e os pagamentos <strong>rejeitados</strong>. Não muda o saldo de ninguém.</p>
+        <button type="button" class="btn btn-sm btn-perigo" data-acao="limpar-cancelados">🧹 Apagar cancelados e rejeitados</button>
       </div>
       <p class="dica" id="atualizado"></p>
     </section>

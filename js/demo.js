@@ -24,6 +24,8 @@ class Sheet {
   getDataRange() { return new Range(this, 1, 1, Math.max(1, this.getLastRow()), Math.max(1, this.getLastColumn())); }
   getRange(r, c, nr = 1, nc = 1) { return new Range(this, r, c, nr, nc); }
   setFrozenRows() {}
+  deleteRow(r) { this.data.splice(r - 1, 1); }
+  insertRowsAfter() {}
   get(r, c) { const v = (this.data[r - 1] || [])[c - 1]; return v === undefined ? '' : v; }
   set(r, c, v) {
     while (this.data.length < r) this.data.push([]);

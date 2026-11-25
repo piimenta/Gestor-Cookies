@@ -105,8 +105,13 @@ marque "Gráficos de plano de fundo" se o fundo verde não aparecer.
 - **Alguém pagou por Pix e clicou "Já paguei":** aparece em destaque no topo do painel.
   Confira no extrato do banco e clique ✅ **Confirmar** (sai da dívida) ou ❌ **Rejeitar** (a dívida continua).
 - **Pagou em dinheiro:** na pessoa, **💵 Recebi em dinheiro**.
-- **Registro errado:** clique no nome da pessoa → histórico → **Cancelar** no registro.
+- **Compra ou pagamento errado:** clique no nome da pessoa → histórico → **🗑️ Apagar** (some da planilha).
   A própria pessoa consegue "Desfazer" pelo celular dela por até 10 minutos.
+- **Clientes:** no card **Clientes** dá para adicionar um nome novo e ver todos (inclusive quem não deve).
+  No histórico de cada pessoa: **🧹 Limpar histórico** (zera a conta, mantém o nome) e **🗑️ Remover cliente**
+  (tira da lista e apaga tudo dela).
+- **Limpeza:** o card **Limpeza** apaga de uma vez as compras canceladas e os pagamentos rejeitados.
+- **Cartaz:** botão **🖨️ Cartaz** no topo do painel.
 - **Cobrar:** **💬 Cobrar no WhatsApp** abre a mensagem pronta; você escolhe o contato.
   Fica vermelho com ⚠️ quem tem compra não paga há mais de 7 dias.
 - **Mudar preço:** edite a aba `Sabores`. O histórico não muda: cada registro guarda o preço do momento.

@@ -23,6 +23,8 @@ class Sheet {
   getDataRange() { return new Range(this, 1, 1, Math.max(1, this.getLastRow()), Math.max(1, this.getLastColumn())); }
   getRange(r, c, nr = 1, nc = 1) { return new Range(this, r, c, nr, nc); }
   setFrozenRows() {}
+  deleteRow(r) { this.data.splice(r - 1, 1); }
+  insertRowsAfter() {}
   get(r, c) { const v = (this.data[r - 1] || [])[c - 1]; return v === undefined ? '' : v; }
   set(r, c, v) { while (this.data.length < r) this.data.push([]); const row = this.data[r - 1]; while (row.length < c) row.push(''); row[c - 1] = v; }
 }
@@ -355,4 +357,76 @@ test('preço como texto com vírgula na planilha funciona', () => {
   ss.getSheetByName('Sabores').set(2, 3, '10,50');
   const r = ok('registrar', { nome: 'Ana', itens: [{ sabor_id: 'tradicional', qtd: 2 }], device_id: DEV });
   assert.equal(r.total, 21);
+});
+
+test('admin: apagar compra e pagamento remove a linha e recalcula o saldo', () => {
+  const { ok, call, tabela } = criarAmbiente();
+  const r = ok('registrar', { nome: 'Lia', itens: [{ sabor_id: 'tradicional', qtd: 1 }, { sabor_id: 'nutella', qtd: 1 }], device_id: DEV });
+  ok('jaPaguei', { nome: 'Lia', valor: 5 });
+  const pagId = tabela('Pagamentos')[0].id;
+
+  const a = ok('adminApagarRegistro', { pin: PIN, registro_id: r.registros[0] });
+  assert.equal(a.saldo, 12);
+  assert.equal(tabela('Registros').length, 1);
+  assert.equal(tabela('Registros')[0].sabor_id, 'nutella');
+
+  const b = ok('adminApagarPagamento', { pin: PIN, pagamento_id: pagId });
+  assert.equal(b.pendente, 0);
+  assert.equal(tabela('Pagamentos').length, 0);
+
+  assert.match(call('adminApagarRegistro', { pin: PIN, registro_id: r.registros[0] }).error, /não encontrado/);
+  assert.match(call('adminApagarRegistro', { pin: 'errado', registro_id: r.registros[1] }).error, /PIN/);
+  assert.equal(tabela('Registros').length, 1);
+});
+
+test('admin: adicionar cliente, limpar histórico e remover cliente', () => {
+  const { ok, call, tabela } = criarAmbiente();
+  ok('adminAdicionarPessoa', { pin: PIN, nome: 'Mário' });
+  assert.match(call('adminAdicionarPessoa', { pin: PIN, nome: ' mário ' }).error, /já está na lista/);
+  assert.deepEqual(ok('init').pessoas, ['Fulano', 'Mário']);
+
+  ok('registrar', { nome: 'Mário', itens: [{ sabor_id: 'mm', qtd: 2 }], device_id: DEV });
+  ok('registrar', { nome: 'Nina', itens: [{ sabor_id: 'mm', qtd: 1 }], device_id: DEV });
+  ok('adminPagamentoManual', { pin: PIN, nome: 'Mário', valor: 10 });
+
+  // limpar: zera a conta mas mantém na lista
+  const l = ok('adminLimparHistorico', { pin: PIN, nome: 'mário' });
+  assert.deepEqual([l.registros, l.pagamentos], [1, 1]);
+  assert.equal(ok('saldo', { nome: 'Mário' }).saldo, 0);
+  assert.ok(ok('init').pessoas.includes('Mário'));
+  assert.equal(ok('saldo', { nome: 'Nina' }).saldo, 12); // outros não mudam
+
+  // remover: some da lista e do resumo
+  ok('registrar', { nome: 'Mário', itens: [{ sabor_id: 'mm', qtd: 1 }], device_id: DEV });
+  const rm = ok('adminRemoverPessoa', { pin: PIN, nome: 'Mário' });
+  assert.deepEqual([rm.registros, rm.pessoas], [1, 1]);
+  assert.ok(!ok('init').pessoas.includes('Mário'));
+  const res = ok('adminResumo', { pin: PIN });
+  assert.ok(!res.clientes.some(c => c.nome === 'Mário'));
+  assert.deepEqual(tabela('Registros').map(r => r.nome), ['Nina']);
+});
+
+test('admin: resumo lista todos os clientes, inclusive quem não deve', () => {
+  const { ok } = criarAmbiente();
+  ok('registrar', { nome: 'Olga', itens: [{ sabor_id: 'mm', qtd: 1 }], device_id: DEV });
+  const res = ok('adminResumo', { pin: PIN });
+  assert.deepEqual(res.clientes.map(c => [c.nome, c.saldo]), [['Fulano', 0], ['Olga', 12]]);
+  assert.deepEqual(res.devedores.map(d => d.nome), ['Olga']);
+});
+
+test('admin: limpar cancelados apaga só compras canceladas e pagamentos rejeitados', () => {
+  const { ok, tabela } = criarAmbiente();
+  const r1 = ok('registrar', { nome: 'Pia', itens: [{ sabor_id: 'mm', qtd: 1 }], device_id: DEV });
+  ok('registrar', { nome: 'Pia', itens: [{ sabor_id: 'nutella', qtd: 1 }], device_id: DEV });
+  ok('desfazer', { id: r1.registros[0], device_id: DEV });
+  ok('jaPaguei', { nome: 'Pia', valor: 5 });
+  ok('jaPaguei', { nome: 'Pia', valor: 7 });
+  ok('adminRejeitar', { pin: PIN, pagamento_id: tabela('Pagamentos')[0].id });
+
+  const out = ok('adminLimparCancelados', { pin: PIN });
+  assert.deepEqual([out.registros, out.pagamentos], [1, 1]);
+  assert.deepEqual(tabela('Registros').map(r => r.status), ['ativo']);
+  assert.deepEqual(tabela('Pagamentos').map(p => [p.valor, p.status]), [[7, 'aguardando']]);
+  const s = ok('saldo', { nome: 'Pia' });
+  assert.deepEqual([s.saldo, s.pendente], [12, 7]);
 });

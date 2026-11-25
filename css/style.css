@@ -362,6 +362,17 @@ details summary { cursor: pointer; font-weight: 600; min-height: 44px; display: 
 .tag-cancelado, .tag-rejeitado { background: var(--erro-bg); color: var(--erro); }
 .destaque { border: 3px solid #ffb300; }
 .vazio { color: var(--muted); margin: 6px 0; }
+.btn-perigo { background: transparent; color: var(--erro); border: 2px solid currentColor; }
+.btn-perigo:hover { background: var(--erro-bg); }
+.btn-mini { min-height: 40px; padding: 6px 12px; font-size: 14px; }
+.linha-form { display: flex; gap: 8px; margin-bottom: 8px; }
+.linha-form .campo { flex: 1; min-height: 48px; margin: 0; border-color: var(--linha); background: var(--suave); }
+.linha-form .btn { flex: 0 0 auto; }
+.item-cliente { flex-wrap: nowrap; }
+.item-cliente .item-main { flex: 1 1 auto; }
+.item-cliente .item-valor { white-space: nowrap; font-size: 16px; }
+.zona-perigo { border-top: 1px solid var(--linha); margin-top: 14px; padding-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+.zona-perigo .btn { flex: 1 1 auto; }
 .linha-acoes { display: flex; gap: 8px; justify-content: space-between; align-items: center; flex-wrap: wrap; }
 
 dialog {

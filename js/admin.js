@@ -156,6 +156,20 @@ function render() {
     }).join('')
     : '<p class="vazio">Ninguém devendo. 🎉</p>';
 
+  const cli = resumo.clientes || [];
+  $('resumo-clientes').textContent = `Todos os clientes (${cli.length})`;
+  $('clientes').innerHTML = cli.length
+    ? cli.map(c => `
+      <div class="item item-cliente">
+        <div class="item-main">
+          <button type="button" class="link item-nome" data-acao="hist" data-nome="${esc(c.nome)}">${esc(c.nome)}</button>
+          <div class="item-sub">${c.ultima_compra ? `Última compra ${fmtDia.format(new Date(c.ultima_compra))} (${haDias(dias(c.ultima_compra))})` : 'Sem compras'}${c.pendente > 0 ? ` · ${brl(c.pendente)} aguardando` : ''}</div>
+        </div>
+        <div class="item-valor">${c.saldo > 0.004 ? brl(c.saldo) : c.saldo < -0.004 ? `crédito ${brl(-c.saldo)}` : '—'}</div>
+        <button type="button" class="btn btn-mini btn-perigo" data-acao="remover" data-nome="${esc(c.nome)}" data-saldo="${c.saldo}" aria-label="Remover ${esc(c.nome)}">🗑️</button>
+      </div>`).join('')
+    : '<p class="vazio">Nenhum cliente ainda.</p>';
+
   $('atualizado').textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
 }
 
@@ -176,7 +190,9 @@ async function executar(btn, fn, okMsg) {
       document.querySelectorAll('dialog[open]').forEach(d => d.close());
       return mostrarLogin(e.message);
     }
-    toast(e.message);
+    toast(/Ação desconhecida/.test(e.message)
+      ? 'Essa função é nova: cole o Code.gs atualizado no Apps Script e implante uma Nova versão.'
+      : e.message);
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -191,9 +207,30 @@ document.addEventListener('click', e => {
   } else if (acao === 'rejeitar') {
     if (!confirm(`Rejeitar o pagamento de ${b.dataset.desc || 'esta pessoa'}? A dívida continua.`)) return;
     executar(b, () => adm('adminRejeitar', { pagamento_id: id }), 'Pagamento rejeitado');
-  } else if (acao === 'cancelar') {
-    if (!confirm(`Cancelar o registro "${b.dataset.desc}"? Isso tira o valor da conta da pessoa.`)) return;
-    executar(b, () => adm('adminCancelarRegistro', { registro_id: id }), 'Registro cancelado');
+  } else if (acao === 'apagar-reg') {
+    if (!confirm(`Apagar a compra "${b.dataset.desc}"?\n\nEla some da planilha e sai da conta da pessoa.`)) return;
+    executar(b, () => adm('adminApagarRegistro', { registro_id: id }), 'Compra apagada 🗑️');
+  } else if (acao === 'apagar-pag') {
+    const aviso = b.dataset.status === 'confirmado' ? '\n\nAtenção: é um pagamento CONFIRMADO, então a dívida da pessoa volta a subir.' : '';
+    if (!confirm(`Apagar o pagamento "${b.dataset.desc}"?${aviso}`)) return;
+    executar(b, () => adm('adminApagarPagamento', { pagamento_id: id }), 'Pagamento apagado 🗑️');
+  } else if (acao === 'limpar-hist') {
+    if (!confirm(`Limpar o histórico de ${nome}?\n\nApaga TODAS as compras e pagamentos (a conta fica zerada). A pessoa continua na lista.`)) return;
+    executar(b, () => adm('adminLimparHistorico', { nome }), `Histórico de ${nome} apagado 🧹`);
+  } else if (acao === 'remover') {
+    const saldo = Number(b.dataset.saldo) || 0;
+    const deve = saldo > 0.004 ? `\n\nAtenção: ${nome} ainda deve ${brl(saldo)}. Essa dívida será apagada.` : '';
+    if (!confirm(`Remover ${nome}?\n\nTira da lista de nomes e apaga todas as compras e pagamentos.${deve}`)) return;
+    executar(b, async () => {
+      await adm('adminRemoverPessoa', { nome });
+      if ($('dlg-hist').open) $('dlg-hist').close();
+    }, `${nome} removido 🗑️`);
+  } else if (acao === 'limpar-cancelados') {
+    if (!confirm('Apagar da planilha todas as compras canceladas e pagamentos rejeitados?')) return;
+    executar(b, async () => {
+      const r = await adm('adminLimparCancelados');
+      toast(`Apagados: ${r.registros} compra(s) e ${r.pagamentos} pagamento(s).`);
+    });
   } else if (acao === 'hist') {
     abrirHistorico(nome);
   } else if (acao === 'dinheiro') {
@@ -237,7 +274,7 @@ async function abrirHistorico(nome) {
         <div class="item-sub">${dataCurta(r.data)} · ${brl(r.preco_unit)} cada</div>
       </div>
       <div class="item-valor">${brl(r.total)}</div>
-      ${r.status === 'ativo' ? `<button type="button" class="btn btn-sm btn-sec" data-acao="cancelar" data-id="${esc(r.id)}" data-desc="${esc(`${r.qtd}× ${r.sabor_nome} — ${brl(r.total)}`)}">Cancelar</button>` : ''}
+      <button type="button" class="btn btn-mini btn-perigo" data-acao="apagar-reg" data-id="${esc(r.id)}" data-desc="${esc(`${r.qtd}× ${r.sabor_nome} — ${brl(r.total)}`)}">🗑️ Apagar</button>
     </div>`).join('') || '<p class="vazio">Nenhum registro.</p>';
 
   const pags = h.pagamentos.map(p => `
@@ -253,10 +290,29 @@ async function abrirHistorico(nome) {
           <button type="button" class="btn btn-sm btn-sec" data-acao="rejeitar" data-id="${esc(p.id)}" data-desc="${esc(h.nome + ' — ' + brl(p.valor))}">❌ Rejeitar</button>
         </div>` : ''}
       ${p.status === 'rejeitado' ? `<button type="button" class="btn btn-sm btn-sec" data-acao="confirmar" data-id="${esc(p.id)}">Confirmar mesmo assim</button>` : ''}
+      <button type="button" class="btn btn-mini btn-perigo" data-acao="apagar-pag" data-id="${esc(p.id)}" data-status="${esc(p.status)}" data-desc="${esc(`${brl(p.valor)} (${p.status}) de ${dataCurta(p.data)}`)}">🗑️ Apagar</button>
     </div>`).join('') || '<p class="vazio">Nenhum pagamento.</p>';
 
-  $('hist-corpo').innerHTML = `<h3>Cookies</h3>${regs}<h3>Pagamentos</h3>${pags}`;
+  $('hist-corpo').innerHTML = `<h3>Cookies</h3>${regs}<h3>Pagamentos</h3>${pags}
+    <div class="zona-perigo">
+      <button type="button" class="btn btn-sm btn-perigo" data-acao="limpar-hist" data-nome="${esc(h.nome)}">🧹 Limpar histórico</button>
+      <button type="button" class="btn btn-sm btn-perigo" data-acao="remover" data-nome="${esc(h.nome)}" data-saldo="${h.saldo}">🗑️ Remover cliente</button>
+    </div>`;
 }
+
+/* ------------------------------------------------------------------ */
+/* adicionar cliente                                                   */
+/* ------------------------------------------------------------------ */
+
+$('form-cliente').addEventListener('submit', e => {
+  e.preventDefault();
+  const nome = $('novo-cliente').value.replace(/\s+/g, ' ').trim();
+  if (nome.length < 2) return toast('Digite o nome (mínimo 2 letras).');
+  executar($('btn-add-cliente'), async () => {
+    await adm('adminAdicionarPessoa', { nome });
+    $('novo-cliente').value = '';
+  }, `${nome} adicionado ✅`);
+});
 
 /* ------------------------------------------------------------------ */
 /* pagamento em dinheiro                                               */

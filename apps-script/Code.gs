@@ -34,6 +34,12 @@ const ACTIONS = {
   adminRejeitar: admin_(actionAdminRejeitar_),
   adminPagamentoManual: admin_(actionAdminPagamentoManual_),
   adminCancelarRegistro: admin_(actionAdminCancelarRegistro_),
+  adminApagarRegistro: admin_(actionAdminApagarRegistro_),
+  adminApagarPagamento: admin_(actionAdminApagarPagamento_),
+  adminAdicionarPessoa: admin_(actionAdminAdicionarPessoa_),
+  adminLimparHistorico: admin_(actionAdminLimparHistorico_),
+  adminRemoverPessoa: admin_(actionAdminRemoverPessoa_),
+  adminLimparCancelados: admin_(actionAdminLimparCancelados_),
 };
 
 /* ------------------------------------------------------------------ */
@@ -264,7 +270,7 @@ function actionAdminResumo_() {
     }
   });
 
-  const devedores = Object.keys(contas).map(k => {
+  const todos = Object.keys(contas).map(k => {
     const c = contas[k];
     const saldo = round2_(c.comprado - c.pago);
     return {
@@ -274,8 +280,11 @@ function actionAdminResumo_() {
       ultima_compra: c.ultima ? new Date(c.ultima).toISOString() : '',
       deve_desde: deveDesde_(c.compras, c.pago),
     };
-  }).filter(d => d.saldo > 0.004 || d.pendente > 0.004)
+  });
+  const devedores = todos.filter(d => d.saldo > 0.004 || d.pendente > 0.004)
     .sort((a, b) => b.saldo - a.saldo);
+  const clientes = todos.slice().sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    .map(d => ({ nome: d.nome, saldo: d.saldo, pendente: d.pendente, ultima_compra: d.ultima_compra }));
 
   aguardando.sort((a, b) => time_(a.data) - time_(b.data));
 
@@ -284,6 +293,7 @@ function actionAdminResumo_() {
     total_a_receber: round2_(devedores.reduce((a, d) => a + Math.max(0, d.saldo), 0)),
     total_recebido_mes: round2_(recebidoMes),
     pagamentos_aguardando: aguardando,
+    clientes: clientes,
   };
 }
 
@@ -361,6 +371,89 @@ function actionAdminCancelarRegistro_(req) {
     SpreadsheetApp.flush();
     const conta = saldoDe_(r.nome, readTable_('Registros').rows, readTable_('Pagamentos').rows);
     return { id: id, saldo: conta.saldo, pendente: conta.pendente };
+  });
+}
+
+/* --- apagar de verdade (some da planilha) --- */
+
+function actionAdminApagarRegistro_(req) {
+  return apagarPorId_('Registros', req.registro_id, 'Registro');
+}
+
+function actionAdminApagarPagamento_(req) {
+  return apagarPorId_('Pagamentos', req.pagamento_id, 'Pagamento');
+}
+
+function apagarPorId_(aba, id, rotulo) {
+  id = String(id || '').trim();
+  if (!id) fail_(rotulo + ' inválido.');
+  return withLock_(() => {
+    const t = readTable_(aba);
+    const row = t.rows.find(x => String(x.id) === id);
+    if (!row) fail_(rotulo + ' não encontrado.');
+    deleteRows_(t, [row]);
+    SpreadsheetApp.flush();
+    const conta = saldoDe_(row.nome, readTable_('Registros').rows, readTable_('Pagamentos').rows);
+    return { id: id, nome: cleanName_(row.nome), saldo: conta.saldo, pendente: conta.pendente };
+  });
+}
+
+function actionAdminAdicionarPessoa_(req) {
+  const nome = validName_(req.nome);
+  return withLock_(() => {
+    const k = key_(nome);
+    const existe = readTable_('Pessoas').rows.some(p => key_(p.nome) === k);
+    if (existe) fail_('"' + nome + '" já está na lista.');
+    garantirPessoa_(nome, 'lista');
+    return { nome: nome };
+  });
+}
+
+/** Apaga todas as compras e pagamentos da pessoa, mas mantém o nome na lista. */
+function actionAdminLimparHistorico_(req) {
+  const nome = validName_(req.nome);
+  return withLock_(() => {
+    const out = apagarHistorico_(nome);
+    SpreadsheetApp.flush();
+    return out;
+  });
+}
+
+/** Tira a pessoa da lista e apaga todo o histórico dela. */
+function actionAdminRemoverPessoa_(req) {
+  const nome = validName_(req.nome);
+  return withLock_(() => {
+    const out = apagarHistorico_(nome);
+    const t = readTable_('Pessoas');
+    const k = key_(nome);
+    out.pessoas = deleteRows_(t, t.rows.filter(p => key_(p.nome) === k));
+    SpreadsheetApp.flush();
+    return out;
+  });
+}
+
+function apagarHistorico_(nome) {
+  const k = key_(nome);
+  const regs = readTable_('Registros');
+  const pags = readTable_('Pagamentos');
+  return {
+    nome: nome,
+    registros: deleteRows_(regs, regs.rows.filter(r => key_(r.nome) === k)),
+    pagamentos: deleteRows_(pags, pags.rows.filter(p => key_(p.nome) === k)),
+  };
+}
+
+/** Faxina: apaga compras canceladas e pagamentos rejeitados (não mexem em saldo nenhum). */
+function actionAdminLimparCancelados_() {
+  return withLock_(() => {
+    const regs = readTable_('Registros');
+    const pags = readTable_('Pagamentos');
+    const out = {
+      registros: deleteRows_(regs, regs.rows.filter(r => status_(r.status) === 'cancelado')),
+      pagamentos: deleteRows_(pags, pags.rows.filter(p => status_(p.status) === 'rejeitado')),
+    };
+    SpreadsheetApp.flush();
+    return out;
   });
 }
 
@@ -611,6 +704,15 @@ function appendRows_(table, objs) {
   const data = objs.map(o => table.headers.map(h => (Object.prototype.hasOwnProperty.call(o, h) ? o[h] : '')));
   const inicio = table.sheet.getLastRow() + 1;
   table.sheet.getRange(inicio, 1, data.length, table.headers.length).setValues(data);
+}
+
+/** Apaga as linhas (de baixo para cima, para os números de linha não mudarem no meio). Devolve quantas. */
+function deleteRows_(table, rows) {
+  const sh = table.sheet;
+  // o Sheets não deixa apagar todas as linhas abaixo do cabeçalho congelado: garante sobra
+  if (rows.length && sh.getMaxRows() - rows.length < 2) sh.insertRowsAfter(sh.getMaxRows(), rows.length);
+  rows.map(r => r._row).sort((a, b) => b - a).forEach(n => table.sheet.deleteRow(n));
+  return rows.length;
 }
 
 function setField_(table, row, field, value) {
