@@ -1,4 +1,4 @@
-// Servidor estático para teste local: `npm run dev` (ou `node tools/serve.mjs 8000`).
+// Servidor estático para teste local: `npm run dev` (ou `node tools/serve.mjs 5500`).
 // Sem dependências. Serve a raiz do projeto (inclusive apps-script/Code.gs, usado pelo modo teste).
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { networkInterfaces } from 'node:os';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
-const PORT = Number(process.argv[2] || process.env.PORT || 8000);
+let PORT = Number(process.argv[2] || process.env.PORT || 5500);
 const TIPOS = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -21,7 +21,7 @@ const TIPOS = {
   '.ico': 'image/x-icon',
 };
 
-createServer(async (req, res) => {
+const server = createServer(async (req, res) => {
   try {
     let caminho = decodeURIComponent(new URL(req.url, 'http://x').pathname);
     if (caminho.endsWith('/')) caminho += 'index.html';
@@ -36,7 +36,16 @@ createServer(async (req, res) => {
     res.end(e.code === 'ENOENT' ? 'Não encontrado' : 'Erro');
   }
   console.log(res.statusCode, req.method, req.url);
-}).listen(PORT, () => {
+});
+
+// porta ocupada (ex.: um container Docker)? tenta a próxima
+server.on('error', e => {
+  if (e.code !== 'EADDRINUSE' || PORT > 5520) throw e;
+  console.log(`Porta ${PORT} ocupada, tentando ${PORT + 1}…`);
+  server.listen(++PORT);
+});
+
+server.listen(PORT, () => {
   const ips = Object.values(networkInterfaces()).flat().filter(i => i && i.family === 'IPv4' && !i.internal).map(i => i.address);
   console.log(`\n🍪 Cookies rodando em:\n`);
   console.log(`   Cliente:  http://localhost:${PORT}/`);

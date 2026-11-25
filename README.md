@@ -140,7 +140,7 @@ Os nomes são comparados sem diferenciar maiúsculas/minúsculas e ignorando esp
 ## Teste local (sem Google)
 
 ```bash
-npm run dev        # http://localhost:8000  (precisa só do Node 18+)
+npm run dev        # http://localhost:5500  (precisa só do Node 18+)
 ```
 
 Enquanto `js/config.js` não tiver a URL real, o site entra no **modo teste**: uma faixa amarela no topo avisa,
@@ -150,7 +150,7 @@ e o próprio `apps-script/Code.gs` roda dentro do navegador com uma planilha fal
 - PIN do painel no modo teste: **1234**
 - **Zerar dados** (na faixa amarela) apaga tudo e recomeça com os exemplos.
 - No celular, na mesma rede Wi-Fi: use o endereço que o `npm run dev` mostra, com `?demo` no final.
-- Com a URL real já configurada, `http://localhost:8000/?demo` ainda força o modo teste.
+- Com a URL real já configurada, `http://localhost:5500/?demo` ainda força o modo teste.
 
 O modo teste (`js/demo.js`) e o `tools/` não vão para a Vercel (`.vercelignore`).
 
