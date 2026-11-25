@@ -32,6 +32,15 @@ const dias = iso => (iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 8
 const haDias = d => (d === 0 ? 'hoje' : d === 1 ? 'ontem' : `há ${d} dias`);
 const dataCurta = iso => (iso ? fmtData.format(new Date(iso)) : '—');
 
+/** Mensagem de cobrança do WhatsApp. deveDesde = compra mais antiga ainda não paga. */
+function msgCobranca(nome, saldo, deveDesde) {
+  const d = dias(deveDesde);
+  const tempo = d >= 2 ? ` fazem ${d} dias` : d === 1 ? ' faz 1 dia' : '';
+  return `Boa tarde, ${nome}, tudo bem?? Vi que você ta devendo ${brl(saldo)} em cookies${tempo}, ` +
+    `quando puder, por favor, faça o pagamento! Obrigado!!\nlink para pagar: ${SITE_URL}`;
+}
+const linkWhats = msg => `https://wa.me/?text=${encodeURIComponent(msg)}`;
+
 const adm = (action, payload = {}) => api(action, { ...payload, pin });
 
 function isErroPin(msg) {
@@ -125,7 +134,7 @@ function render() {
       const dUlt = dias(d.ultima_compra);
       const dDeve = dias(d.deve_desde);
       const atrasado = d.saldo > 0 && dDeve !== null && dDeve > 7;
-      const msg = `Oi ${d.nome}! Tá devendo ${brl(d.saldo)} dos cookies 🍪 Paga por aqui: ${SITE_URL}`;
+      const msg = msgCobranca(d.nome, d.saldo, d.deve_desde);
       const sub = [
         d.ultima_compra ? `Última compra ${fmtDia.format(new Date(d.ultima_compra))} (${haDias(dUlt)})` : 'Sem compras',
         atrasado ? `<span class="tag-atraso">deve desde ${fmtDia.format(new Date(d.deve_desde))} (${dDeve} dias)</span>` : '',
@@ -141,7 +150,7 @@ function render() {
         ${d.saldo > 0 ? `
         <div class="item-acoes">
           <button type="button" class="btn btn-sm btn-ok" data-acao="dinheiro" data-nome="${esc(d.nome)}" data-saldo="${d.saldo}">💵 Recebi em dinheiro</button>
-          <a class="btn btn-sm btn-sec" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">💬 Cobrar no WhatsApp</a>
+          <a class="btn btn-sm btn-sec" href="${linkWhats(msg)}" target="_blank" rel="noopener">💬 Cobrar no WhatsApp</a>
         </div>` : ''}
       </div>`;
     }).join('')
@@ -215,10 +224,11 @@ async function abrirHistorico(nome) {
   }
   if (histNome !== nome) return;
   $('hist-saldo').textContent = `Deve ${brl(h.saldo)}${h.pendente > 0 ? ` · ${brl(h.pendente)} aguardando` : ''}`;
-  const msg = `Oi ${h.nome}! Tá devendo ${brl(h.saldo)} dos cookies 🍪 Paga por aqui: ${SITE_URL}`;
+  const dev = resumo?.devedores.find(x => x.nome.toLowerCase() === h.nome.toLowerCase());
+  const msg = msgCobranca(h.nome, h.saldo, dev?.deve_desde);
   $('hist-acoes').innerHTML = `
     <button type="button" class="btn btn-sm btn-ok" data-acao="dinheiro" data-nome="${esc(h.nome)}" data-saldo="${h.saldo}">💵 Recebi em dinheiro</button>
-    ${h.saldo > 0 ? `<a class="btn btn-sm btn-sec" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">💬 Cobrar no WhatsApp</a>` : ''}`;
+    ${h.saldo > 0 ? `<a class="btn btn-sm btn-sec" href="${linkWhats(msg)}" target="_blank" rel="noopener">💬 Cobrar no WhatsApp</a>` : ''}`;
 
   const regs = h.registros.map(r => `
     <div class="item">
