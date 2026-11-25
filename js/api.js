@@ -38,7 +38,11 @@ export async function api(action, payload = {}) {
   } catch {
     throw new Error('Resposta inválida do servidor.');
   }
-  if (!json.ok) throw new Error(json.error || 'Erro desconhecido.');
+  if (!json.ok) {
+    const err = new Error(json.error || 'Erro desconhecido.');
+    err.code = json.code || null; // 'sessao' = entrar de novo; 'sem_nome' = escolher o nome
+    throw err;
+  }
   return json.data;
 }
 

@@ -100,6 +100,37 @@ marque "Gráficos de plano de fundo" se o fundo verde não aparecer.
 
 ---
 
+## Login com Google (opcional, recomendado)
+
+Com o login ligado, cada pessoa entra com a conta Google e **só consegue registrar e ver a própria conta**:
+ninguém mais usa o nome de outro. Na primeira vez no celular ela escolhe o nome na lista (fica ligado ao
+e-mail); depois o site já abre logado (180 dias). Enquanto não fizer este passo, o site funciona como antes.
+
+1. **Criar o "Client ID" no Google Cloud** (grátis), em https://console.cloud.google.com:
+   1. Crie um projeto (ex.: `Cookies`).
+   2. *APIs e serviços → Tela de permissão OAuth*: tipo **Externo**, nome do app `Cookies`, seu e-mail de
+      suporte e de contato. Não precisa adicionar escopos. No fim, clique em **Publicar app**
+      (status "Em produção"; só usa e-mail e nome, então não precisa de verificação do Google).
+   3. *APIs e serviços → Credenciais → Criar credenciais → ID do cliente OAuth*:
+      - Tipo: **Aplicativo da Web**
+      - Origens JavaScript autorizadas: `https://SEU-PROJETO.vercel.app` e `http://localhost:5500`
+      - (não precisa de URI de redirecionamento)
+   4. Copie o **ID do cliente** (termina em `.apps.googleusercontent.com`).
+2. **No Apps Script:**
+   1. Cole o `Code.gs` atualizado e salve.
+   2. *Configurações do projeto → Propriedades do script*: crie `GOOGLE_CLIENT_ID` com o ID copiado.
+   3. No seletor de funções, escolha **`autorizar`** e clique em **Executar**: o Google pede uma permissão
+      nova ("conectar a um serviço externo", usada para conferir o login). Aceite.
+   4. *Implantar → Gerenciar implantações → ✏️ → Versão: Nova versão → Implantar*.
+3. Pronto: abra o site e vai aparecer **Continuar com Google**.
+
+**No painel**, cada cliente mostra o e-mail ligado (🔒). No histórico da pessoa:
+- **🔒 Reservar e-mail Google**: liga o nome a um e-mail *antes* de a pessoa entrar. Assim ninguém pega
+  o nome dela, e ela já cai direto na conta. Recomendado para todo mundo da lista.
+- **🔓 Desvincular Google**: se alguém escolheu o nome errado; no próximo login escolhe de novo.
+
+Para desligar o login, apague a propriedade `GOOGLE_CLIENT_ID`.
+
 ## Dia a dia
 
 - **Alguém pagou por Pix e clicou "Já paguei":** aparece em destaque no topo do painel.
@@ -153,6 +184,8 @@ e o próprio `apps-script/Code.gs` roda dentro do navegador com uma planilha fal
 (com algumas pessoas e compras de exemplo). Dá para testar tudo: registrar, desfazer, Pix, "Já paguei", painel.
 
 - PIN do painel no modo teste: **1234**
+- O modo teste já vem com o login ligado, com um "Google" de mentira: entre com qualquer e-mail
+  (`ana@exemplo.com` já é da Ana Paula).
 - **Zerar dados** (na faixa amarela) apaga tudo e recomeça com os exemplos.
 - No celular, na mesma rede Wi-Fi: use o endereço que o `npm run dev` mostra, com `?demo` no final.
 - Com a URL real já configurada, `http://localhost:5500/?demo` ainda força o modo teste.

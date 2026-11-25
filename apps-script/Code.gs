@@ -4,12 +4,14 @@
  * Cole este arquivo inteiro em Extensões → Apps Script da planilha "Cookies".
  * Rode setup() uma vez. Publique como App da Web (Executar como: Eu / Acesso: Qualquer pessoa).
  * O PIN do admin fica em Configurações do projeto → Propriedades do script → ADMIN_PIN.
+ * Login com Google (opcional): crie GOOGLE_CLIENT_ID nas Propriedades do script. Com ele,
+ * registrar/ver conta/pagar passa a exigir login, e cada e-mail fica ligado a um nome.
  */
 
 const SHEETS = {
   Config: ['chave', 'valor'],
   Sabores: ['id', 'nome', 'preco', 'emoji', 'ativo'],
-  Pessoas: ['nome', 'criado_em', 'origem'],
+  Pessoas: ['nome', 'criado_em', 'origem', 'email'],
   Registros: ['id', 'data', 'nome', 'sabor_id', 'sabor_nome', 'qtd', 'preco_unit', 'total', 'status', 'device_id'],
   Pagamentos: ['id', 'data', 'nome', 'valor', 'status', 'confirmado_em', 'obs'],
 };
@@ -19,6 +21,7 @@ const MAX_QTD = 20;                     // por sabor, por registro
 const MAX_PAGAMENTO = 10000;
 const PIN_MAX_FALHAS = 10;              // tentativas erradas antes de bloquear
 const PIN_BLOQUEIO_SEG = 15 * 60;       // bloqueio de 15 minutos
+const SESSAO_DIAS = 180;                // login com Google vale 180 dias no celular
 
 const ACTIONS = {
   // públicas
@@ -27,6 +30,8 @@ const ACTIONS = {
   saldo: actionSaldo_,
   desfazer: actionDesfazer_,
   jaPaguei: actionJaPaguei_,
+  login: actionLogin_,
+  vincular: actionVincular_,
   // admin (exigem pin)
   adminResumo: admin_(actionAdminResumo_),
   adminHistorico: admin_(actionAdminHistorico_),
@@ -40,6 +45,8 @@ const ACTIONS = {
   adminLimparHistorico: admin_(actionAdminLimparHistorico_),
   adminRemoverPessoa: admin_(actionAdminRemoverPessoa_),
   adminLimparCancelados: admin_(actionAdminLimparCancelados_),
+  adminDesvincular: admin_(actionAdminDesvincular_),
+  adminVincularEmail: admin_(actionAdminVincularEmail_),
 };
 
 /* ------------------------------------------------------------------ */
@@ -65,7 +72,7 @@ function doPost(e) {
   try {
     return json_({ ok: true, data: handler(req) });
   } catch (err) {
-    if (err && err.userFacing) return json_({ ok: false, error: err.message });
+    if (err && err.userFacing) return json_({ ok: false, error: err.message, code: err.code || undefined });
     console.error(err && err.stack ? err.stack : err);
     return json_({ ok: false, error: 'Erro no servidor. Tenta de novo.' });
   }
@@ -77,11 +84,14 @@ function doPost(e) {
 
 function actionInit_() {
   const c = config_();
+  const cid = clientId_();
   return {
     titulo: String(c.titulo || 'Cookies'),
     subtitulo: String(c.subtitulo || ''),
     sabores: sabores_(true).map(s => ({ id: s.id, nome: s.nome, preco: s.preco, emoji: s.emoji })),
-    pessoas: pessoas_().map(p => p.nome).sort((a, b) => a.localeCompare(b, 'pt-BR')),
+    // com login, só aparecem os nomes que ainda não estão ligados a uma conta Google
+    pessoas: pessoas_().filter(p => !cid || !p.email).map(p => p.nome).sort((a, b) => a.localeCompare(b, 'pt-BR')),
+    login: cid ? { client_id: cid } : null,
     pix: {
       chave: String(c.pix_chave || '').trim(),
       nome: String(c.pix_nome || '').trim(),
@@ -91,7 +101,7 @@ function actionInit_() {
 }
 
 function actionRegistrar_(req) {
-  const nomeInformado = validName_(req.nome);
+  const nomeInformado = quem_(req);
   const deviceId = validDevice_(req.device_id);
   const itens = Array.isArray(req.itens) ? req.itens : [];
   if (!itens.length) fail_('Escolhe pelo menos um cookie.');
@@ -148,7 +158,7 @@ function actionRegistrar_(req) {
 }
 
 function actionSaldo_(req) {
-  const nome = validName_(req.nome);
+  const nome = quem_(req);
   const regs = readTable_('Registros').rows;
   const conta = saldoDe_(nome, regs, readTable_('Pagamentos').rows);
   const k = key_(nome);
@@ -162,6 +172,7 @@ function actionSaldo_(req) {
 
 function actionDesfazer_(req) {
   const deviceId = validDevice_(req.device_id);
+  const dono = loginAtivo_() ? key_(quem_(req)) : null;
   const ids = (Array.isArray(req.ids) ? req.ids : [req.id]).map(v => String(v || '').trim()).filter(Boolean);
   if (!ids.length || ids.length > 50) fail_('Registro inválido.');
 
@@ -172,6 +183,7 @@ function actionDesfazer_(req) {
       const r = t.rows.find(x => String(x.id) === id);
       if (!r) fail_('Registro não encontrado.');
       if (String(r.device_id) !== deviceId) fail_('Só dá pra desfazer no mesmo celular que registrou.');
+      if (dono !== null && key_(r.nome) !== dono) fail_('Esse registro não é seu.');
       if (agora - time_(r.data) > UNDO_WINDOW_MS) fail_('Passou de 10 minutos, não dá mais pra desfazer. Fala comigo!');
       return r;
     });
@@ -186,7 +198,7 @@ function actionDesfazer_(req) {
 }
 
 function actionJaPaguei_(req) {
-  const nomeInformado = validName_(req.nome);
+  const nomeInformado = quem_(req);
   const valor = validValor_(req.valor);
   return withLock_(() => idempotent_(req, () => {
     const nome = garantirPessoa_(nomeInformado);
@@ -203,6 +215,134 @@ function actionJaPaguei_(req) {
     const conta = saldoDe_(nome, readTable_('Registros').rows, readTable_('Pagamentos').rows);
     return { saldo: conta.saldo, pendente: conta.pendente };
   }));
+}
+
+/* ------------------------------------------------------------------ */
+/* Login com Google                                                    */
+/* ------------------------------------------------------------------ */
+
+/** Recebe o ID token do botão "Continuar com Google", confere no Google e devolve uma sessão própria. */
+function actionLogin_(req) {
+  const g = verificarGoogle_(req.credential);
+  const p = pessoaPorEmail_(g.email);
+  return { sessao: criarSessao_(g.email), email: g.email, nome: p ? p.nome : null, nome_google: g.nome };
+}
+
+/** Primeira vez: liga o e-mail da sessão a um nome da lista (ou cria um nome novo). */
+function actionVincular_(req) {
+  const email = emailDaSessao_(req.sessao);
+  const nome = validName_(req.nome);
+  return withLock_(() => {
+    garantirColuna_('Pessoas', 'email');
+    const ja = pessoaPorEmail_(email);
+    if (ja) return { nome: ja.nome };
+    const t = readTable_('Pessoas');
+    const k = key_(nome);
+    const linha = t.rows.find(p => key_(p.nome) === k);
+    if (linha && String(linha.email || '').trim()) fail_('Esse nome já está ligado a outra conta Google. Fala comigo!');
+    if (linha) {
+      setField_(t, linha, 'email', email);
+      SpreadsheetApp.flush();
+      return { nome: cleanName_(linha.nome) };
+    }
+    appendRows_(t, [{ nome: nome, criado_em: new Date(), origem: 'auto', email: email }]);
+    SpreadsheetApp.flush();
+    return { nome: nome };
+  });
+}
+
+function clientId_() {
+  return String(PropertiesService.getScriptProperties().getProperty('GOOGLE_CLIENT_ID') || '').trim();
+}
+
+function loginAtivo_() {
+  return !!clientId_();
+}
+
+/** Nome de quem está chamando: com login vem da sessão (o "nome" enviado é ignorado); sem login, do pedido. */
+function quem_(req) {
+  if (!loginAtivo_()) return validName_(req.nome);
+  const email = emailDaSessao_(req.sessao);
+  const p = pessoaPorEmail_(email);
+  if (!p) fail_('Escolhe seu nome na lista primeiro.', 'sem_nome');
+  return p.nome;
+}
+
+function verificarGoogle_(credential) {
+  const cid = clientId_();
+  if (!cid) fail_('O login com Google não está configurado.');
+  const tok = String(credential || '');
+  if (!/^[\w-]+\.[\w-]+\.[\w-]+$/.test(tok)) fail_('Login inválido. Tenta de novo.');
+  const res = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(tok), { muteHttpExceptions: true });
+  if (res.getResponseCode() !== 200) fail_('Não consegui confirmar seu login no Google. Tenta de novo.');
+  const info = JSON.parse(res.getContentText());
+  if (info.aud !== cid) fail_('Login inválido. Tenta de novo.');
+  if (['accounts.google.com', 'https://accounts.google.com'].indexOf(info.iss) < 0) fail_('Login inválido. Tenta de novo.');
+  if (String(info.email_verified) !== 'true') fail_('Seu e-mail do Google não está verificado.');
+  if (!(Number(info.exp) * 1000 > Date.now())) fail_('Login expirado. Entra de novo.');
+  return { email: String(info.email || '').trim().toLowerCase(), nome: String(info.name || info.given_name || '').trim() };
+}
+
+/* Sessão = base64(email|validade).assinatura HMAC, com segredo guardado nas Propriedades do script. */
+
+function criarSessao_(email) {
+  const payload = email + '|' + (Date.now() + SESSAO_DIAS * 86400000);
+  return b64_(payload) + '.' + assinar_(payload);
+}
+
+function emailDaSessao_(sessao) {
+  const partes = String(sessao || '').split('.');
+  const invalida = () => fail_('Sua sessão expirou. Entra com o Google de novo.', 'sessao');
+  if (partes.length !== 2 || !partes[0] || !partes[1]) invalida();
+  let payload;
+  try { payload = deB64_(partes[0]); } catch (e) { invalida(); }
+  if (assinar_(payload) !== partes[1]) invalida();
+  const [email, validade] = payload.split('|');
+  if (!email || !(Number(validade) > Date.now())) invalida();
+  return email;
+}
+
+function segredo_() {
+  const props = PropertiesService.getScriptProperties();
+  let s = props.getProperty('SESSAO_SEGREDO');
+  if (!s) {
+    s = Utilities.getUuid() + Utilities.getUuid();
+    props.setProperty('SESSAO_SEGREDO', s);
+  }
+  return s;
+}
+
+function assinar_(payload) {
+  return b64_(Utilities.computeHmacSha256Signature(payload, segredo_()));
+}
+
+function b64_(v) {
+  return Utilities.base64EncodeWebSafe(v).replace(/=+$/, '');
+}
+
+function deB64_(s) {
+  const pad = s + '==='.slice((s.length + 3) % 4);
+  return Utilities.newBlob(Utilities.base64DecodeWebSafe(pad)).getDataAsString();
+}
+
+function pessoaPorEmail_(email) {
+  email = String(email || '').trim().toLowerCase();
+  if (!email) return null;
+  return pessoas_().find(p => p.email === email) || null;
+}
+
+/** Planilhas criadas antes de uma coluna existir: acrescenta o cabeçalho no fim. */
+function garantirColuna_(aba, coluna) {
+  const sh = sheet_(aba);
+  const headers = sh.getRange(1, 1, 1, Math.max(1, sh.getLastColumn())).getValues()[0].map(h => String(h).trim());
+  if (headers.indexOf(coluna) >= 0) return;
+  sh.getRange(1, headers.filter(Boolean).length + 1).setValue(coluna).setFontWeight('bold');
+}
+
+/** Só para o dono rodar no editor: força o Google a pedir as permissões novas (ex.: UrlFetchApp do login). */
+function autorizar() {
+  UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=x', { muteHttpExceptions: true });
+  console.log('Permissões ok.');
 }
 
 /* ------------------------------------------------------------------ */
@@ -238,7 +378,8 @@ function actionAdminResumo_() {
     if (!contas[k]) contas[k] = { nome: cleanName_(nome), compras: [], comprado: 0, pago: 0, pendente: 0, ultima: 0 };
     return contas[k];
   };
-  pessoas_().forEach(p => conta(p.nome)); // nome "oficial" vem da aba Pessoas
+  const emails = {};
+  pessoas_().forEach(p => { conta(p.nome); if (p.email) emails[key_(p.nome)] = p.email; }); // nome "oficial" vem da aba Pessoas
 
   regs.forEach(r => {
     if (status_(r.status) !== 'ativo') return;
@@ -284,7 +425,7 @@ function actionAdminResumo_() {
   const devedores = todos.filter(d => d.saldo > 0.004 || d.pendente > 0.004)
     .sort((a, b) => b.saldo - a.saldo);
   const clientes = todos.slice().sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
-    .map(d => ({ nome: d.nome, saldo: d.saldo, pendente: d.pendente, ultima_compra: d.ultima_compra }));
+    .map(d => ({ nome: d.nome, saldo: d.saldo, pendente: d.pendente, ultima_compra: d.ultima_compra, email: emails[key_(d.nome)] || '' }));
 
   aguardando.sort((a, b) => time_(a.data) - time_(b.data));
 
@@ -303,8 +444,10 @@ function actionAdminHistorico_(req) {
   const regs = readTable_('Registros').rows;
   const pags = readTable_('Pagamentos').rows;
   const conta = saldoDe_(nome, regs, pags);
+  const pessoa = pessoas_().find(p => key_(p.nome) === k);
   return {
     nome: nome,
+    email: pessoa ? pessoa.email : '',
     saldo: conta.saldo,
     pendente: conta.pendente,
     registros: regs.filter(r => key_(r.nome) === k)
@@ -457,6 +600,40 @@ function actionAdminLimparCancelados_() {
   });
 }
 
+/** Tira a ligação com a conta Google (a pessoa escolhe o nome de novo no próximo login). */
+function actionAdminDesvincular_(req) {
+  const nome = validName_(req.nome);
+  return withLock_(() => {
+    garantirColuna_('Pessoas', 'email');
+    const t = readTable_('Pessoas');
+    const k = key_(nome);
+    const linhas = t.rows.filter(p => key_(p.nome) === k && String(p.email || '').trim());
+    if (!linhas.length) fail_('"' + nome + '" não está ligado a nenhuma conta Google.');
+    linhas.forEach(p => setField_(t, p, 'email', ''));
+    SpreadsheetApp.flush();
+    return { nome: nome };
+  });
+}
+
+/** Reserva o nome para um e-mail antes da pessoa entrar (ela já cai direto na conta dela). */
+function actionAdminVincularEmail_(req) {
+  const nome = validName_(req.nome);
+  const email = String(req.email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 100) fail_('E-mail inválido.');
+  return withLock_(() => {
+    garantirColuna_('Pessoas', 'email');
+    const dono = pessoaPorEmail_(email);
+    if (dono && key_(dono.nome) !== key_(nome)) fail_('Esse e-mail já está ligado a "' + dono.nome + '".');
+    const t = readTable_('Pessoas');
+    const k = key_(nome);
+    const linha = t.rows.find(p => key_(p.nome) === k);
+    if (linha) setField_(t, linha, 'email', email);
+    else appendRows_(t, [{ nome: nome, criado_em: new Date(), origem: 'lista', email: email }]);
+    SpreadsheetApp.flush();
+    return { nome: linha ? cleanName_(linha.nome) : nome, email: email };
+  });
+}
+
 /* ------------------------------------------------------------------ */
 /* Regras de negócio                                                   */
 /* ------------------------------------------------------------------ */
@@ -526,7 +703,7 @@ function pessoas_() {
     const k = key_(nome);
     if (!k || vistos[k]) return;
     vistos[k] = true;
-    out.push({ nome: nome, origem: String(r.origem || '') });
+    out.push({ nome: nome, origem: String(r.origem || ''), email: String(r.email || '').trim().toLowerCase() });
   });
   return out;
 }
@@ -561,9 +738,10 @@ function pagamentoOut_(p) {
 /* Validação e utilidades                                              */
 /* ------------------------------------------------------------------ */
 
-function fail_(msg) {
+function fail_(msg, code) {
   const e = new Error(msg);
   e.userFacing = true;
+  if (code) e.code = code;
   throw e;
 }
 
@@ -749,14 +927,14 @@ function setup() {
       ['pistache', 'Pistache', 16, '💚', true],
     ],
     Pessoas: [
-      ['Fulano', new Date(), 'lista'],
+      ['Fulano', new Date(), 'lista', ''],
     ],
   };
   // colunas guardadas como texto puro (evita "+5511..." virar número e CPF perder zero à esquerda)
   const colunasTexto = {
     Config: ['chave', 'valor'],
     Sabores: ['id'],
-    Pessoas: ['nome'],
+    Pessoas: ['nome', 'email'],
     Registros: ['id', 'nome', 'sabor_id', 'device_id'],
     Pagamentos: ['id', 'nome', 'obs'],
   };
@@ -765,7 +943,10 @@ function setup() {
     const headers = SHEETS[name];
     let sh = ss.getSheetByName(name);
     if (!sh) sh = ss.insertSheet(name);
-    if (sh.getLastRow() > 0) return; // aba já existe com dados: não mexe
+    if (sh.getLastRow() > 0) { // aba já existe com dados: só acrescenta colunas novas
+      headers.forEach(h => garantirColuna_(name, h));
+      return;
+    }
 
     (colunasTexto[name] || []).forEach(h => {
       sh.getRange(1, headers.indexOf(h) + 1, sh.getMaxRows(), 1).setNumberFormat('@');

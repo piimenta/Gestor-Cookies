@@ -163,6 +163,7 @@ function render() {
       <div class="item item-cliente">
         <div class="item-main">
           <button type="button" class="link item-nome" data-acao="hist" data-nome="${esc(c.nome)}">${esc(c.nome)}</button>
+          ${c.email ? `<div class="item-sub item-email">🔒 ${esc(c.email)}</div>` : ''}
           <div class="item-sub">${c.ultima_compra ? `Última compra ${fmtDia.format(new Date(c.ultima_compra))} (${haDias(dias(c.ultima_compra))})` : 'Sem compras'}${c.pendente > 0 ? ` · ${brl(c.pendente)} aguardando` : ''}</div>
         </div>
         <div class="item-valor">${c.saldo > 0.004 ? brl(c.saldo) : c.saldo < -0.004 ? `crédito ${brl(-c.saldo)}` : '—'}</div>
@@ -231,6 +232,13 @@ document.addEventListener('click', e => {
       const r = await adm('adminLimparCancelados');
       toast(`Apagados: ${r.registros} compra(s) e ${r.pagamentos} pagamento(s).`);
     });
+  } else if (acao === 'vincular-email') {
+    const email = (prompt(`E-mail Google de ${nome}:\n\nQuando essa pessoa entrar com esse e-mail, cai direto na conta dela. Ninguém mais consegue usar o nome "${nome}".`) || '').trim();
+    if (!email) return;
+    executar(b, () => adm('adminVincularEmail', { nome, email }), `${nome} reservado para ${email} 🔒`);
+  } else if (acao === 'desvincular') {
+    if (!confirm(`Desvincular ${nome} da conta ${b.dataset.email}?\n\nNo próximo login, a pessoa escolhe o nome de novo. As compras e pagamentos continuam.`)) return;
+    executar(b, () => adm('adminDesvincular', { nome }), `${nome} desvinculado 🔓`);
   } else if (acao === 'hist') {
     abrirHistorico(nome);
   } else if (acao === 'dinheiro') {
@@ -260,7 +268,8 @@ async function abrirHistorico(nome) {
     return;
   }
   if (histNome !== nome) return;
-  $('hist-saldo').textContent = `Deve ${brl(h.saldo)}${h.pendente > 0 ? ` · ${brl(h.pendente)} aguardando` : ''}`;
+  $('hist-saldo').textContent = `Deve ${brl(h.saldo)}${h.pendente > 0 ? ` · ${brl(h.pendente)} aguardando` : ''}` +
+    (h.email ? ` · 🔒 ${h.email}` : '');
   const dev = resumo?.devedores.find(x => x.nome.toLowerCase() === h.nome.toLowerCase());
   const msg = msgCobranca(h.nome, h.saldo, dev?.deve_desde);
   $('hist-acoes').innerHTML = `
@@ -295,6 +304,9 @@ async function abrirHistorico(nome) {
 
   $('hist-corpo').innerHTML = `<h3>Cookies</h3>${regs}<h3>Pagamentos</h3>${pags}
     <div class="zona-perigo">
+      ${h.email
+        ? `<button type="button" class="btn btn-sm btn-sec" data-acao="desvincular" data-nome="${esc(h.nome)}" data-email="${esc(h.email)}">🔓 Desvincular Google</button>`
+        : `<button type="button" class="btn btn-sm btn-sec" data-acao="vincular-email" data-nome="${esc(h.nome)}">🔒 Reservar e-mail Google</button>`}
       <button type="button" class="btn btn-sm btn-perigo" data-acao="limpar-hist" data-nome="${esc(h.nome)}">🧹 Limpar histórico</button>
       <button type="button" class="btn btn-sm btn-perigo" data-acao="remover" data-nome="${esc(h.nome)}" data-saldo="${h.saldo}">🗑️ Remover cliente</button>
     </div>`;

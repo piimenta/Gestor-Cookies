@@ -8,6 +8,8 @@ import { uuid } from './api.js';
 
 const DB_KEY = 'cookies.demo.db';
 const PIN = '1234';
+const CLIENT_ID = 'modo-teste.apps.googleusercontent.com'; // liga o login (com "Google" de mentira)
+const PROPS_KEY = 'cookies.demo.props';
 const LATENCIA_MS = 350; // simula a demora da rede
 
 /* --------------------------- planilha falsa --------------------------- */
@@ -61,6 +63,28 @@ const carregar = () => {
 
 /* ------------------------- ambiente do Apps Script ------------------------- */
 
+function propriedades() {
+  let p = {};
+  try { p = JSON.parse(localStorage.getItem(PROPS_KEY)) || {}; } catch { /* */ }
+  return { ADMIN_PIN: PIN, GOOGLE_CLIENT_ID: CLIENT_ID, ...p };
+}
+function salvarProp(k, v) {
+  let p = {};
+  try { p = JSON.parse(localStorage.getItem(PROPS_KEY)) || {}; } catch { /* */ }
+  p[k] = v;
+  localStorage.setItem(PROPS_KEY, JSON.stringify(p));
+}
+const deB64 = s => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0)));
+function hashFake(str) {
+  const out = [];
+  let h = 2166136261;
+  for (let i = 0; i < 32; i++) {
+    for (const c of str + i) h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0;
+    out.push((h & 255) > 127 ? (h & 255) - 256 : h & 255);
+  }
+  return out;
+}
+
 let motor = null; // { doPost, setup }
 let sheets = null;
 const cache = new Map();
@@ -76,9 +100,23 @@ function globais() {
     SpreadsheetApp: { getActive: () => ss, flush() {} },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
     CacheService: { getScriptCache: () => ({ get: k => (cache.has(k) ? cache.get(k) : null), put: (k, v) => cache.set(k, v) }) },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k === 'ADMIN_PIN' ? PIN : null) }) },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: k => propriedades()[k] ?? null, setProperty: (k, v) => salvarProp(k, v) }) },
+    // no lugar do tokeninfo do Google: o "token" do modo teste é só o JSON em base64
+    UrlFetchApp: {
+      fetch: url => {
+        let info = null;
+        try { info = JSON.parse(deB64(decodeURIComponent(url.split('id_token=')[1] || '').split('.')[1])); } catch { /* */ }
+        return { getResponseCode: () => (info ? 200 : 400), getContentText: () => JSON.stringify(info || { error: 'invalid_token' }) };
+      },
+    },
     Utilities: {
       getUuid: () => uuid(),
+      // HMAC de mentira (síncrono, só para o modo teste; o Apps Script de verdade usa SHA-256)
+      computeHmacSha256Signature: (v, k) => hashFake(k + '|' + v),
+      base64EncodeWebSafe: v => btoa(String.fromCharCode(...(typeof v === 'string' ? new TextEncoder().encode(v) : v.map(b => b & 255))))
+        .replace(/\+/g, '-').replace(/\//g, '_'),
+      base64DecodeWebSafe: s => Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0)),
+      newBlob: b => ({ getDataAsString: () => new TextDecoder().decode(new Uint8Array(b.map(x => x & 255))) }),
       formatDate: (d, tz) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit' }).format(d).slice(0, 7),
     },
     Session: { getScriptTimeZone: () => 'America/Sao_Paulo' },
@@ -109,7 +147,8 @@ function popular() {
 
   const pessoas = sh('Pessoas');
   pessoas.data.length = 1; // tira o "Fulano"
-  for (const nome of ['Ana Paula', 'Bruno', 'Carla', 'Diego']) pessoas.data.push([nome, dias(30), 'lista']);
+  // Ana Paula já está com o e-mail reservado: quem entrar como ana@exemplo.com cai direto na conta dela
+  for (const [nome, email] of [['Ana Paula', 'ana@exemplo.com'], ['Bruno', ''], ['Carla', ''], ['Diego', '']]) pessoas.data.push([nome, dias(30), 'lista', email]);
 
   const reg = (d, nome, id, sabor, qtd, preco, status = 'ativo') =>
     sh('Registros').data.push([uuid(), dias(d), nome, id, sabor, qtd, preco, qtd * preco, status, 'demo-seed']);
@@ -138,7 +177,11 @@ export async function demoApi(action, payload = {}) {
   await new Promise(r => setTimeout(r, LATENCIA_MS));
   const out = JSON.parse(motor.doPost({ postData: { contents: JSON.stringify({ ...payload, action }) } }).content);
   salvar(sheets);
-  if (!out.ok) throw new Error(out.error || 'Erro desconhecido.');
+  if (!out.ok) {
+    const err = new Error(out.error || 'Erro desconhecido.');
+    err.code = out.code || null;
+    throw err;
+  }
   return out.data;
 }
 
@@ -151,7 +194,7 @@ function aviso() {
   const q = new URLSearchParams(location.search).has('demo') ? '?demo' : '';
   el.style.cssText = 'background:#ffd54a;color:#3a2a00;font:600 14px/1.35 system-ui,sans-serif;padding:8px 12px;' +
     'display:flex;gap:6px 12px;align-items:center;justify-content:center;flex-wrap:wrap;text-align:center';
-  el.innerHTML = '<span>🧪 Modo teste local: os dados ficam só neste navegador. PIN do painel: <b>' + PIN + '</b></span>' +
+  el.innerHTML = '<span>🧪 Modo teste local: os dados ficam só neste navegador. PIN do painel: <b>' + PIN + '</b> · Login: qualquer e-mail (ana@exemplo.com já é da Ana Paula)</span>' +
     '<span style="display:flex;gap:12px"><a href="index.html' + q + '" style="color:inherit">Cliente</a>' +
     '<a href="admin.html' + q + '" style="color:inherit">Painel</a><a href="qr.html' + q + '" style="color:inherit">Cartaz</a>' +
     '<button type="button" style="font:inherit;background:none;border:0;padding:0;color:inherit;text-decoration:underline;cursor:pointer">Zerar dados</button></span>';

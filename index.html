@@ -41,9 +41,25 @@
       <button type="button" class="link" id="btn-desfazer">Desfazer</button>
     </div>
 
+    <!-- Passo 0: login com Google (só quando ligado no Apps Script) -->
+    <section id="tela-login" hidden>
+      <div class="card login-card">
+        <h2>Entrar</h2>
+        <p>Para registrar seus cookies e ver sua conta, entre com a sua conta Google.</p>
+        <p class="dica">É só na primeira vez neste celular. Assim ninguém consegue usar o seu nome.</p>
+        <div id="google-btn" class="google-btn"></div>
+        <form id="demo-login" class="demo-login" hidden>
+          <label for="demo-email">E-mail (modo teste, sem Google de verdade)</label>
+          <input id="demo-email" class="campo" type="email" placeholder="voce@exemplo.com" autocomplete="off" required>
+          <button class="btn btn-bloco">Entrar (modo teste)</button>
+        </form>
+        <p class="login-msg" id="login-msg" role="alert" hidden></p>
+      </div>
+    </section>
+
     <!-- Passo 1: quem é você -->
     <section id="tela-nome" hidden>
-      <h2>Quem é você?</h2>
+      <h2 id="nome-titulo">Quem é você?</h2>
       <input id="busca-nome" class="campo" type="search" placeholder="Digite seu nome…" autocomplete="off"
              autocapitalize="words" spellcheck="false" enterkeyhint="go" aria-label="Seu nome" maxlength="40">
       <ul id="lista-nomes" class="lista-nomes"></ul>

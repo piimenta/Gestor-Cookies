@@ -1,4 +1,4 @@
-import { api, uuid, brl, esc, parseValor, valorInput } from './api.js';
+import { api, uuid, brl, esc, parseValor, valorInput, modoDemo } from './api.js';
 import { gerarPix } from './pix.js';
 import { qrSvg } from './qr.js';
 
@@ -8,6 +8,7 @@ const K = {
   init: 'cookies.init',       // cache do init (abre instantâneo na próxima visita)
   undo: 'cookies.undo',       // último registro, para "Desfazer"
   carrinho: 'cookies.carrinho',
+  sessao: 'cookies.sessao',   // login com Google: { token, email }
 };
 const UNDO_MS = 10 * 60 * 1000;
 const UNDO_MARGEM_MS = 15 * 1000; // some um pouco antes do servidor recusar
@@ -29,6 +30,7 @@ const ss = sessionStorage;
 
 const state = {
   init: null,
+  sessao: store.get(ls, K.sessao, true),
   nome: store.get(ls, K.nome) || '',
   carrinho: carregarCarrinho(), // { sabor_id: qtd }
   tela: null,
@@ -96,24 +98,144 @@ function limparErro() {
 }
 
 /* ------------------------------------------------------------------ */
+/* login com Google                                                    */
+/* ------------------------------------------------------------------ */
+
+const loginLigado = () => !!state.init?.login;
+const logado = () => !!state.sessao?.token;
+
+/** Quem está pedindo: com login vai a sessão (o servidor ignora o nome); sem login, o nome escolhido. */
+const quem = () => (loginLigado() ? { sessao: state.sessao?.token } : { nome: state.nome });
+
+/** Erros de login devolvidos pelo servidor: manda para a tela certa. Retorna true se tratou. */
+function tratouLogin(e) {
+  if (e.code === 'sessao') {
+    sair('Sua sessão expirou. Entra com o Google de novo.');
+    return true;
+  }
+  if (e.code === 'sem_nome') {
+    state.nome = '';
+    store.del(ls, K.nome);
+    abrirNome(state.tela === 'conta' ? 'conta' : 'pedido');
+    return true;
+  }
+  return false;
+}
+
+function sair(msg) {
+  state.sessao = null;
+  state.nome = '';
+  state.conta = null;
+  store.del(ls, K.sessao);
+  store.del(ls, K.nome);
+  store.del(ls, K.undo);
+  try { window.google?.accounts?.id?.disableAutoSelect(); } catch { /* */ }
+  abrirLogin(msg);
+}
+
+let gisPromise = null;
+function carregarGoogle() {
+  gisPromise ||= new Promise((ok, falha) => {
+    const sc = document.createElement('script');
+    sc.src = 'https://accounts.google.com/gsi/client';
+    sc.async = true;
+    sc.onload = ok;
+    sc.onerror = () => { gisPromise = null; falha(new Error('Não consegui carregar o login do Google. Confere a internet e tenta de novo.')); };
+    document.head.appendChild(sc);
+  });
+  return gisPromise;
+}
+
+async function abrirLogin(msg) {
+  mostrar('login');
+  const m = $('login-msg');
+  m.textContent = msg || '';
+  m.hidden = !msg;
+  if (modoDemo) {
+    $('demo-login').hidden = false;
+    $('google-btn').hidden = true;
+    return;
+  }
+  try {
+    await carregarGoogle();
+    google.accounts.id.initialize({
+      client_id: state.init.login.client_id,
+      callback: r => entrarComToken(r.credential),
+      auto_select: true,
+      cancel_on_tap_outside: false,
+    });
+    const el = $('google-btn');
+    el.innerHTML = '';
+    google.accounts.id.renderButton(el, {
+      type: 'standard', theme: 'outline', size: 'large', text: 'continue_with', shape: 'pill',
+      locale: 'pt-BR', width: Math.min(320, el.clientWidth || 320),
+    });
+  } catch (e) {
+    m.textContent = e.message;
+    m.hidden = false;
+  }
+}
+
+async function entrarComToken(credential) {
+  const m = $('login-msg');
+  m.hidden = true;
+  $('google-btn').style.opacity = '.5';
+  try {
+    const r = await api('login', { credential });
+    state.sessao = { token: r.sessao, email: r.email };
+    store.set(ls, K.sessao, state.sessao);
+    state.conta = null;
+    state.reqRegistrar = null;
+    if (r.nome) {
+      state.nome = r.nome;
+      store.set(ls, K.nome, r.nome);
+      irInicio();
+    } else {
+      state.nome = '';
+      store.del(ls, K.nome);
+      abrirNome(state.depoisDoNome, r.nome_google);
+    }
+  } catch (e) {
+    m.textContent = `Não deu pra entrar: ${e.message}`;
+    m.hidden = false;
+  } finally {
+    $('google-btn').style.opacity = '';
+  }
+}
+
+$('demo-login').addEventListener('submit', e => {
+  e.preventDefault();
+  // modo teste: monta um "token" falso que o demo.js entende no lugar do Google
+  const email = $('demo-email').value.trim().toLowerCase();
+  const nome = email.split('@')[0].replace(/[._-]+/g, ' ').replace(/(^|\s)\p{L}/gu, c => c.toUpperCase());
+  const b64 = o => btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const info = { email, name: nome, aud: state.init.login.client_id, iss: 'https://accounts.google.com', email_verified: 'true', exp: Math.floor(Date.now() / 1000) + 3600 };
+  entrarComToken('demo.' + b64(info) + '.demo');
+});
+
+/* ------------------------------------------------------------------ */
 /* navegação                                                           */
 /* ------------------------------------------------------------------ */
 
 function mostrar(tela) {
   state.tela = tela;
   $('carregando').hidden = true;
-  for (const t of ['nome', 'pedido', 'conta']) $('tela-' + t).hidden = t !== tela;
+  for (const t of ['login', 'nome', 'pedido', 'conta']) $('tela-' + t).hidden = t !== tela;
   $('barra').hidden = tela !== 'pedido';
-  $('btn-conta').hidden = tela === 'conta';
+  $('btn-conta').hidden = tela === 'conta' || tela === 'login' || (tela === 'nome' && loginLigado());
   renderDesfazer();
 }
 
 function irInicio() {
+  let destino = state.depoisDoNome || 'pedido';
   if (location.hash === '#conta') {
     history.replaceState(null, '', location.pathname + location.search);
-    return abrirConta();
+    destino = 'conta';
   }
-  if (!state.nome) return abrirNome('pedido');
+  state.depoisDoNome = destino;
+  if (loginLigado() && !logado()) return abrirLogin();
+  if (!state.nome) return abrirNome(destino);
+  if (destino === 'conta') return abrirConta();
   abrirPedido();
 }
 
@@ -133,8 +255,9 @@ async function boot() {
     const data = await api('init');
     store.set(ls, K.init, data);
     const primeiraVez = !state.init;
+    const loginMudou = !!state.init && !!state.init.login !== !!data.login;
     aplicarInit(data);
-    if (primeiraVez) irInicio();
+    if (primeiraVez || loginMudou) irInicio();
   } catch (e) {
     if (!state.init) {
       $('carregando').hidden = true;
@@ -145,6 +268,7 @@ async function boot() {
 
 function aplicarInit(data) {
   state.init = data;
+  for (const id of ['btn-trocar', 'btn-trocar-2']) $(id).textContent = data.login ? '(sair)' : '(trocar)';
   $('titulo').textContent = data.titulo || 'Cookies';
   $('subtitulo').textContent = data.subtitulo || 'feitos com carinho';
   document.title = `${data.titulo || 'Cookies'} 🍪`;
@@ -161,10 +285,15 @@ function aplicarInit(data) {
 /* passo 1: nome                                                       */
 /* ------------------------------------------------------------------ */
 
-function abrirNome(depois) {
+function abrirNome(depois, sugestao) {
   state.depoisDoNome = depois || 'pedido';
   mostrar('nome');
-  $('busca-nome').value = '';
+  const login = loginLigado();
+  $('nome-titulo').textContent = login ? 'Qual é o seu nome?' : 'Quem é você?';
+  $('dica-nome').textContent = login
+    ? 'Toque no seu nome. Ele fica ligado à sua conta Google (é só uma vez). Não está na lista? Digite seu nome completo e toque em “Não estou na lista”.'
+    : 'Comece a digitar e toque no seu nome. Não está na lista? Digite o nome completo e toque em “Não estou na lista”.';
+  $('busca-nome').value = sugestao || '';
   renderNomes();
   $('busca-nome').focus();
 }
@@ -186,11 +315,26 @@ function renderNomes() {
   $('lista-nomes').innerHTML = html;
 }
 
-function escolherNome(nome) {
+let vinculando = false;
+async function escolherNome(nome) {
   nome = limparNome(nome);
   if (nome.length < 2 || nome.length > 40) return toast('O nome precisa ter entre 2 e 40 letras.');
   if (/^[=+\-@]/.test(nome)) return toast('Nome inválido.');
   if (nome === nome.toLowerCase()) nome = nome.replace(/(^|\s)\p{L}/gu, m => m.toUpperCase());
+  if (loginLigado()) {
+    if (vinculando) return;
+    if (!confirm(`Confirma que você é ${nome}?\n\nEsse nome vai ficar ligado à sua conta Google (${state.sessao?.email || ''}).`)) return;
+    vinculando = true;
+    limparErro();
+    try {
+      nome = (await api('vincular', { sessao: state.sessao?.token, nome })).nome;
+    } catch (e) {
+      if (!tratouLogin(e)) erro(e.message, null);
+      return;
+    } finally {
+      vinculando = false;
+    }
+  }
   if (semAcento(nome) !== semAcento(state.nome)) {
     state.conta = null;
     state.reqRegistrar = null;
@@ -212,8 +356,14 @@ $('lista-nomes').addEventListener('click', e => {
   if (!b) return;
   escolherNome(b.dataset.novo ? $('busca-nome').value : b.dataset.nome);
 });
-$('btn-trocar').addEventListener('click', () => abrirNome('pedido'));
-$('btn-trocar-2').addEventListener('click', () => abrirNome('conta'));
+$('btn-trocar').addEventListener('click', () => {
+  if (loginLigado()) { if (confirm('Sair da sua conta neste celular?')) sair(); return; }
+  abrirNome('pedido');
+});
+$('btn-trocar-2').addEventListener('click', () => {
+  if (loginLigado()) { if (confirm('Sair da sua conta neste celular?')) sair(); return; }
+  abrirNome('conta');
+});
 
 /* ------------------------------------------------------------------ */
 /* passo 2: o que pegou                                                */
@@ -298,7 +448,7 @@ async function confirmar() {
   atualizarPedido();
   try {
     const r = await api('registrar', {
-      nome: state.nome,
+      ...quem(),
       itens,
       device_id: deviceId(),
       request_id: state.reqRegistrar,
@@ -315,7 +465,7 @@ async function confirmar() {
     state.enviando = false;
     abrirConta(true);
   } catch (e) {
-    erro(`Não consegui salvar, tenta de novo. (${e.message})`, confirmar);
+    if (!tratouLogin(e)) erro(`Não consegui salvar, tenta de novo. (${e.message})`, confirmar);
   } finally {
     state.enviando = false;
     atualizarPedido();
@@ -359,7 +509,7 @@ async function desfazer() {
   btn.disabled = true;
   limparErro();
   try {
-    const r = await api('desfazer', { ids: u.ids, device_id: deviceId() });
+    const r = await api('desfazer', { ids: u.ids, device_id: deviceId(), ...quem() });
     store.del(ls, K.undo);
     // devolve a seleção para a pessoa corrigir
     state.carrinho = {};
@@ -369,8 +519,8 @@ async function desfazer() {
     abrirPedido();
     toast('Desfeito! Ajuste e confirme de novo.');
   } catch (e) {
-    if (/minutos|mesmo celular|não encontrado/i.test(e.message)) store.del(ls, K.undo);
-    erro(`Não consegui desfazer. (${e.message})`, null);
+    if (/minutos|mesmo celular|não encontrado|não é seu/i.test(e.message)) store.del(ls, K.undo);
+    if (!tratouLogin(e)) erro(`Não consegui desfazer. (${e.message})`, null);
   } finally {
     btn.disabled = false;
     renderDesfazer();
@@ -383,6 +533,7 @@ $('btn-desfazer').addEventListener('click', desfazer);
 /* ------------------------------------------------------------------ */
 
 function abrirConta(depoisDeRegistrar = false) {
+  if (loginLigado() && !logado()) { state.depoisDoNome = 'conta'; return abrirLogin(); }
   if (!state.nome) return abrirNome('conta');
   state.acabouDeRegistrar = depoisDeRegistrar;
   $('conta-nome').textContent = state.nome;
@@ -398,7 +549,7 @@ async function carregarSaldo() {
   const nome = state.nome;
   $('ultimos').innerHTML = '<li>Carregando…</li>';
   try {
-    const r = await api('saldo', { nome });
+    const r = await api('saldo', { ...quem() });
     if (nome !== state.nome) return;
     const mudou = !state.conta || state.conta.saldo !== r.saldo || state.conta.pendente !== r.pendente;
     state.conta = { saldo: r.saldo, pendente: r.pendente };
@@ -407,6 +558,7 @@ async function carregarSaldo() {
     renderUltimos(r.ultimos || []);
   } catch (e) {
     $('ultimos').innerHTML = '<li>Não consegui carregar.</li>';
+    if (tratouLogin(e)) return;
     if (!state.conta) erro(`Não consegui carregar sua conta. (${e.message})`, carregarSaldo);
   }
 }
@@ -526,7 +678,7 @@ async function enviarPaguei(v) {
   renderPix();
   limparErro();
   try {
-    const r = await api('jaPaguei', { nome: state.nome, valor: v, request_id: state.reqPaguei.id });
+    const r = await api('jaPaguei', { ...quem(), valor: v, request_id: state.reqPaguei.id });
     state.reqPaguei = null;
     state.conta = { saldo: r.saldo, pendente: r.pendente };
     state.enviandoPaguei = false;
@@ -534,7 +686,7 @@ async function enviarPaguei(v) {
     preencherValor();
     $('paguei-ok').hidden = false;
   } catch (e) {
-    erro(`Não consegui avisar o pagamento, tenta de novo. (${e.message})`, () => enviarPaguei(v));
+    if (!tratouLogin(e)) erro(`Não consegui avisar o pagamento, tenta de novo. (${e.message})`, () => enviarPaguei(v));
   } finally {
     state.enviandoPaguei = false;
     btn.textContent = '✅ Já paguei';
@@ -554,6 +706,7 @@ $('btn-paguei').addEventListener('click', () => {
 
 $('btn-conta').addEventListener('click', () => abrirConta());
 $('btn-voltar').addEventListener('click', () => {
+  if (loginLigado() && !logado()) { state.depoisDoNome = 'pedido'; return abrirLogin(); }
   if (!state.nome) return abrirNome('pedido');
   abrirPedido();
   window.scrollTo({ top: 0 });

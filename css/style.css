@@ -194,6 +194,14 @@ section > .dica { color: var(--on-bg-muted); } /* dica direto no fundo verde; de
 .ola { margin: 6px 0 0; color: var(--on-bg); }
 .ola .link { color: var(--on-bg-muted); }
 
+/* ---------- login ---------- */
+.login-card { text-align: center; }
+.login-card p { margin: 0 0 8px; }
+.google-btn { display: flex; justify-content: center; min-height: 48px; margin: 16px 0 6px; }
+.demo-login { text-align: left; margin-top: 12px; }
+.demo-login .campo { border-color: var(--linha); background: var(--suave); margin-bottom: 10px; }
+.login-msg { color: var(--erro); font-weight: 600; margin-top: 10px !important; }
+
 /* ---------- sabores ---------- */
 .sabores { display: grid; gap: 10px; }
 .sabor {
@@ -369,6 +377,7 @@ details summary { cursor: pointer; font-weight: 600; min-height: 44px; display: 
 .linha-form .campo { flex: 1; min-height: 48px; margin: 0; border-color: var(--linha); background: var(--suave); }
 .linha-form .btn { flex: 0 0 auto; }
 .item-cliente { flex-wrap: nowrap; }
+.item-email { word-break: break-all; }
 .item-cliente .item-main { flex: 1 1 auto; }
 .item-cliente .item-valor { white-space: nowrap; font-size: 16px; }
 .zona-perigo { border-top: 1px solid var(--linha); margin-top: 14px; padding-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }

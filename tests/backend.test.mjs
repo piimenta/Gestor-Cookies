@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHmac } from 'node:crypto';
 
 const CODE = readFileSync(new URL('../apps-script/Code.gs', import.meta.url), 'utf8');
 const PIN = '4321';
@@ -37,7 +37,16 @@ class Range {
   setNumberFormat() { return this; }
 }
 
-function criarAmbiente({ pin = PIN } = {}) {
+const CLIENT_ID = 'cookies-teste.apps.googleusercontent.com';
+/** Token falso no formato JWT; o UrlFetchApp falso abaixo faz o papel do tokeninfo do Google. */
+function tokenGoogle({ email = 'ana@gmail.com', name = 'Ana Google', aud = CLIENT_ID, exp = Date.now() / 1000 + 3600, verified = true, iss = 'https://accounts.google.com', invalido = false } = {}) {
+  const corpo = Buffer.from(JSON.stringify({ email, name, aud, exp: Math.floor(exp), email_verified: String(verified), iss, invalido })).toString('base64url');
+  return 'cabecalho.' + corpo + '.assinatura';
+}
+const bytes = buf => Array.from(buf, b => (b > 127 ? b - 256 : b)); // byte[] do Apps Script é com sinal
+const unbytes = arr => Buffer.from(arr.map(b => b & 255));
+
+function criarAmbiente({ pin = PIN, clientId = null } = {}) {
   const sheets = [new Sheet('Página1')];
   const ss = {
     getSheetByName: n => sheets.find(s => s.name === n) || null,
@@ -47,14 +56,28 @@ function criarAmbiente({ pin = PIN } = {}) {
   };
   const cache = new Map();
   const props = pin ? { ADMIN_PIN: pin } : {};
+  if (clientId) props.GOOGLE_CLIENT_ID = clientId;
   const ctx = vm.createContext({
     console: { log() {}, warn() {}, error() {} },
     SpreadsheetApp: { getActive: () => ss, flush() {} },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
     CacheService: { getScriptCache: () => ({ get: k => (cache.has(k) ? cache.get(k) : null), put: (k, v) => cache.set(k, v) }) },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: k => props[k] ?? null }) },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: k => props[k] ?? null, setProperty: (k, v) => { props[k] = v; } }) },
+    UrlFetchApp: {
+      fetch: url => {
+        const tok = decodeURIComponent(url.split('id_token=')[1] || '');
+        let info = null;
+        try { info = JSON.parse(Buffer.from(tok.split('.')[1], 'base64url').toString()); } catch { /* */ }
+        const ok = info && !info.invalido;
+        return { getResponseCode: () => (ok ? 200 : 400), getContentText: () => JSON.stringify(ok ? info : { error: 'invalid_token' }) };
+      },
+    },
     Utilities: {
       getUuid: () => randomUUID(),
+      computeHmacSha256Signature: (v, k) => bytes(createHmac('sha256', k).update(v).digest()),
+      base64EncodeWebSafe: v => (typeof v === 'string' ? Buffer.from(v) : unbytes(v)).toString('base64').replace(/\+/g, '-').replace(/\//g, '_'),
+      base64DecodeWebSafe: s => bytes(Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64')),
+      newBlob: b => ({ getDataAsString: () => unbytes(b).toString('utf8') }),
       formatDate: (d, tz) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit' }).format(d).slice(0, 7),
     },
     Session: { getScriptTimeZone: () => 'America/Sao_Paulo' },
@@ -77,7 +100,7 @@ function criarAmbiente({ pin = PIN } = {}) {
     const [h, ...rows] = s.data;
     return rows.map(r => Object.fromEntries(h.map((k, i) => [k, r[i]])));
   };
-  return { ctx, ss, call, ok, raw, tabela, cache };
+  return { ctx, ss, call, ok, raw, tabela, cache, props };
 }
 
 const DEV = 'device-aaaa-1111';
@@ -429,4 +452,128 @@ test('admin: limpar cancelados apaga só compras canceladas e pagamentos rejeita
   assert.deepEqual(tabela('Pagamentos').map(p => [p.valor, p.status]), [[7, 'aguardando']]);
   const s = ok('saldo', { nome: 'Pia' });
   assert.deepEqual([s.saldo, s.pendente], [12, 7]);
+});
+
+/* ----------------------------- login com Google ----------------------------- */
+
+test('login: desligado sem GOOGLE_CLIENT_ID (init.login = null e nome livre continua valendo)', () => {
+  const { ok, call } = criarAmbiente();
+  assert.equal(ok('init').login, null);
+  assert.match(call('login', { credential: tokenGoogle() }).error, /não está configurado/);
+});
+
+test('login: fluxo completo — entrar, escolher nome, registrar, ver saldo, pagar', () => {
+  const { ok, call, tabela } = criarAmbiente({ clientId: CLIENT_ID });
+  assert.deepEqual(ok('init').login, { client_id: CLIENT_ID });
+
+  const l = ok('login', { credential: tokenGoogle({ email: 'Ana@Gmail.com' }) });
+  assert.equal(l.email, 'ana@gmail.com');
+  assert.equal(l.nome, null);
+  assert.equal(l.nome_google, 'Ana Google');
+
+  // sem escolher nome ainda
+  assert.equal(call('saldo', { sessao: l.sessao }).code, 'sem_nome');
+
+  assert.equal(ok('vincular', { sessao: l.sessao, nome: 'Fulano' }).nome, 'Fulano');
+  assert.equal(tabela('Pessoas').find(p => p.nome === 'Fulano').email, 'ana@gmail.com');
+  assert.deepEqual(ok('init').pessoas, []); // Fulano já tem dono: some da lista
+
+  // o "nome" enviado é ignorado: vale o da sessão
+  const r = ok('registrar', { sessao: l.sessao, nome: 'Outra Pessoa', itens: [{ sabor_id: 'mm', qtd: 1 }], device_id: DEV });
+  assert.equal(r.nome, 'Fulano');
+  assert.equal(ok('saldo', { sessao: l.sessao, nome: 'Outra Pessoa' }).saldo, 12);
+  assert.equal(ok('jaPaguei', { sessao: l.sessao, valor: 12 }).pendente, 12);
+  assert.ok(!tabela('Pessoas').some(p => p.nome === 'Outra Pessoa'));
+
+  // novo login no mesmo e-mail já volta com o nome
+  assert.equal(ok('login', { credential: tokenGoogle({ email: 'ana@gmail.com' }) }).nome, 'Fulano');
+});
+
+test('login: sem sessão (ou sessão adulterada/expirada) não registra nada', () => {
+  const { ok, call, ctx, tabela } = criarAmbiente({ clientId: CLIENT_ID });
+  const item = { itens: [{ sabor_id: 'mm', qtd: 1 }], device_id: DEV };
+  assert.equal(call('registrar', { nome: 'Fulano', ...item }).code, 'sessao');
+
+  const { sessao } = ok('login', { credential: tokenGoogle({ email: 'ana@gmail.com' }) });
+  ok('vincular', { sessao, nome: 'Ana' });
+  const [corpo, sig] = sessao.split('.');
+  const falsa = Buffer.from('bruno@gmail.com|' + (Date.now() + 1e9)).toString('base64url') + '.' + sig;
+  assert.equal(call('registrar', { sessao: falsa, ...item }).code, 'sessao');
+  assert.equal(call('registrar', { sessao: corpo + '.xxxx', ...item }).code, 'sessao');
+  assert.equal(call('registrar', { sessao: 'lixo', ...item }).code, 'sessao');
+
+  // sessão vencida (assinada certo, mas com validade no passado)
+  const venc = 'ana@gmail.com|' + (Date.now() - 1000);
+  const vencida = ctx.b64_(venc) + '.' + ctx.assinar_(venc);
+  assert.equal(call('saldo', { sessao: vencida }).code, 'sessao');
+  assert.equal(tabela('Registros').length, 0);
+});
+
+test('login: token do Google inválido, de outro app, não verificado ou vencido é recusado', () => {
+  const { call } = criarAmbiente({ clientId: CLIENT_ID });
+  assert.match(call('login', { credential: tokenGoogle({ invalido: true }) }).error, /Não consegui confirmar/);
+  assert.match(call('login', { credential: tokenGoogle({ aud: 'outro-app' }) }).error, /inválido/);
+  assert.match(call('login', { credential: tokenGoogle({ iss: 'https://malicioso.com' }) }).error, /inválido/);
+  assert.match(call('login', { credential: tokenGoogle({ verified: false }) }).error, /não está verificado/);
+  assert.match(call('login', { credential: tokenGoogle({ exp: Date.now() / 1000 - 10 }) }).error, /expirado/);
+  assert.match(call('login', { credential: 'nao-e-jwt' }).error, /inválido/);
+});
+
+test('login: ninguém pega um nome que já tem dono, nem desfaz registro dos outros', () => {
+  const { ok, call } = criarAmbiente({ clientId: CLIENT_ID });
+  const ana = ok('login', { credential: tokenGoogle({ email: 'ana@gmail.com' }) }).sessao;
+  const bia = ok('login', { credential: tokenGoogle({ email: 'bia@gmail.com' }) }).sessao;
+  ok('vincular', { sessao: ana, nome: 'Fulano' });
+  assert.match(call('vincular', { sessao: bia, nome: ' fulano ' }).error, /já está ligado a outra conta/);
+  // quem já tem nome não troca vinculando outro
+  assert.equal(ok('vincular', { sessao: ana, nome: 'Outro Nome' }).nome, 'Fulano');
+
+  ok('vincular', { sessao: bia, nome: 'Bia' });
+  const r = ok('registrar', { sessao: ana, itens: [{ sabor_id: 'mm', qtd: 1 }], device_id: DEV });
+  assert.match(call('desfazer', { sessao: bia, id: r.registros[0], device_id: DEV }).error, /não é seu/);
+  assert.equal(ok('desfazer', { sessao: ana, id: r.registros[0], device_id: DEV }).cancelados, 1);
+});
+
+test('login: admin vê o e-mail e consegue desvincular', () => {
+  const { ok, call, tabela } = criarAmbiente({ clientId: CLIENT_ID });
+  const s = ok('login', { credential: tokenGoogle({ email: 'ana@gmail.com' }) }).sessao;
+  ok('vincular', { sessao: s, nome: 'Fulano' });
+  assert.equal(ok('adminResumo', { pin: PIN }).clientes.find(c => c.nome === 'Fulano').email, 'ana@gmail.com');
+  assert.equal(ok('adminHistorico', { pin: PIN, nome: 'Fulano' }).email, 'ana@gmail.com');
+
+  ok('adminDesvincular', { pin: PIN, nome: 'Fulano' });
+  assert.equal(tabela('Pessoas').find(p => p.nome === 'Fulano').email, '');
+  assert.equal(call('saldo', { sessao: s }).code, 'sem_nome'); // vai escolher o nome de novo
+  assert.match(call('adminDesvincular', { pin: PIN, nome: 'Fulano' }).error, /não está ligado/);
+});
+
+test('login: planilha antiga (sem coluna email) ganha a coluna sozinha', () => {
+  const { ok, ss, ctx } = criarAmbiente({ clientId: CLIENT_ID });
+  const pessoas = ss.getSheetByName('Pessoas');
+  pessoas.data = pessoas.data.map(r => r.slice(0, 3)); // simula a aba criada antes do login existir
+  assert.deepEqual(pessoas.data[0], ['nome', 'criado_em', 'origem']);
+  const s = ok('login', { credential: tokenGoogle({ email: 'ana@gmail.com' }) }).sessao;
+  ok('vincular', { sessao: s, nome: 'Fulano' });
+  assert.deepEqual(pessoas.data[0], ['nome', 'criado_em', 'origem', 'email']);
+  assert.equal(pessoas.get(2, 4), 'ana@gmail.com');
+
+  // setup() numa planilha antiga também acrescenta a coluna, sem apagar nada
+  const regs = ss.getSheetByName('Registros');
+  regs.data[0] = regs.data[0].slice(0, 9); // sem device_id
+  ctx.setup();
+  assert.equal(regs.data[0][9], 'device_id');
+});
+
+test('login: admin reserva o nome para um e-mail; a pessoa entra direto na conta dela', () => {
+  const { ok, call } = criarAmbiente({ clientId: CLIENT_ID });
+  ok('adminVincularEmail', { pin: PIN, nome: 'Fulano', email: ' Ana@Gmail.com ' });
+  assert.deepEqual(ok('init').pessoas, []); // ninguém mais consegue escolher "Fulano"
+  const intruso = ok('login', { credential: tokenGoogle({ email: 'intruso@gmail.com' }) }).sessao;
+  assert.match(call('vincular', { sessao: intruso, nome: 'Fulano' }).error, /outra conta/);
+  assert.equal(ok('login', { credential: tokenGoogle({ email: 'ana@gmail.com' }) }).nome, 'Fulano');
+
+  assert.match(call('adminVincularEmail', { pin: PIN, nome: 'Outro', email: 'ana@gmail.com' }).error, /já está ligado a "Fulano"/);
+  assert.match(call('adminVincularEmail', { pin: PIN, nome: 'Fulano', email: 'nao-e-email' }).error, /E-mail inválido/);
+  ok('adminVincularEmail', { pin: PIN, nome: 'Novo Colega', email: 'novo@empresa.com' }); // cria o cliente já reservado
+  assert.equal(ok('login', { credential: tokenGoogle({ email: 'novo@empresa.com' }) }).nome, 'Novo Colega');
 });
