@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#043303">
+  <title>Cookies 🍪</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍪</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat+Brush&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js" defer></script>
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <header class="topo">
+    <h1 class="titulo" id="titulo">Cookies</h1>
+    <svg class="rabisco" viewBox="0 0 180 14" aria-hidden="true"><path d="M3 8 Q 13 1 23 8 T 43 8 T 63 8 T 83 8 T 103 8 T 123 8 T 143 8 T 163 8 T 177 7"/></svg>
+    <p class="subtitulo" id="subtitulo">feitos com carinho</p>
+    <div class="topo-acoes">
+      <button type="button" class="pill" id="btn-conta">💸 Ver minha conta / pagar</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="carregando" aria-busy="true" aria-label="Carregando">
+      <div class="skel curto"></div>
+      <div class="skel"></div>
+      <div class="skel"></div>
+      <div class="skel"></div>
+    </div>
+
+    <div id="erro" class="banner banner-erro" role="alert" hidden>
+      <p id="erro-msg"></p>
+      <button type="button" class="btn btn-sm" id="erro-retry">Tentar de novo</button>
+    </div>
+
+    <div id="desfazer-box" class="banner banner-ok" hidden>
+      <p id="desfazer-msg"></p>
+      <button type="button" class="link" id="btn-desfazer">Desfazer</button>
+    </div>
+
+    <!-- Passo 1: quem é você -->
+    <section id="tela-nome" hidden>
+      <h2>Quem é você?</h2>
+      <input id="busca-nome" class="campo" type="search" placeholder="Digite seu nome…" autocomplete="off"
+             autocapitalize="words" spellcheck="false" enterkeyhint="go" aria-label="Seu nome" maxlength="40">
+      <ul id="lista-nomes" class="lista-nomes"></ul>
+      <p class="dica" id="dica-nome">Comece a digitar e toque no seu nome. Não está na lista? Digite o nome completo e toque em “Não estou na lista”.</p>
+    </section>
+
+    <!-- Passo 2: o que pegou -->
+    <section id="tela-pedido" hidden>
+      <p class="ola">Olá, <strong id="ola-nome"></strong> <button type="button" class="link" id="btn-trocar">(trocar)</button></p>
+      <h2>O que você pegou?</h2>
+      <div id="sabores" class="sabores"></div>
+    </section>
+
+    <!-- Passo 3: conta e pagamento -->
+    <section id="tela-conta" hidden>
+      <p class="ola">Conta de <strong id="conta-nome"></strong> <button type="button" class="link" id="btn-trocar-2">(trocar)</button></p>
+
+      <div class="card saldo-card">
+        <p class="saldo-label">Sua conta</p>
+        <p class="saldo-valor" id="saldo-valor">—</p>
+        <p class="saldo-extra" id="saldo-extra" hidden></p>
+        <p class="saldo-pendente" id="saldo-pendente" hidden></p>
+      </div>
+
+      <div class="card" id="pagar">
+        <h2>Pagar agora</h2>
+        <p class="dica">Opcional — pode pagar depois. Dá pra pagar só uma parte.</p>
+        <div id="pix-off" class="banner banner-aviso" hidden><p>O Pix ainda não foi configurado. Paga direto comigo 🙂</p></div>
+        <div id="pix-on">
+          <label for="valor-pix">Valor</label>
+          <div class="input-moeda">
+            <span>R$</span>
+            <input id="valor-pix" inputmode="decimal" autocomplete="off" placeholder="0,00" aria-label="Valor do Pix em reais">
+          </div>
+          <div id="pix-qr" class="pix-qr" hidden></div>
+          <p class="pix-info" id="pix-info" hidden></p>
+          <div class="pilha">
+            <button type="button" class="btn btn-bloco" id="btn-copiar" disabled>📋 Copiar Pix copia e cola</button>
+            <button type="button" class="btn btn-sec btn-bloco" id="btn-paguei" disabled>✅ Já paguei</button>
+          </div>
+          <div id="paguei-ok" class="banner banner-ok" hidden><p>Valeu! Vou confirmar em breve. 💚</p></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <details id="ultimos-box">
+          <summary>Últimos registros</summary>
+          <ul class="ultimos" id="ultimos"><li>Carregando…</li></ul>
+        </details>
+      </div>
+
+      <button type="button" class="btn btn-bloco" id="btn-voltar">🍪 Registrar cookie</button>
+    </section>
+  </main>
+
+  <footer class="barra" id="barra" hidden>
+    <div class="barra-in">
+      <div>
+        <span class="barra-label" id="barra-qtd">Total</span>
+        <strong class="barra-total" id="total">R$ 0,00</strong>
+      </div>
+      <button type="button" class="btn" id="btn-confirmar" disabled>Confirmar</button>
+    </div>
+  </footer>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QR da caixinha · Cookies</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍪</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat+Brush&display=swap">
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js" defer></script>
+  <style id="page-size">@page { size: A6; margin: 0; }</style>
+  <style>
+    :root {
+      --verde: #043303;
+      --vermelho: #c0161c;
+      --mao: "Caveat Brush", "Comic Sans MS", cursive;
+      --serif: Georgia, "Times New Roman", serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: #d9d6cf;
+      min-height: 100vh;
+      display: flex; flex-direction: column; align-items: center; gap: 16px;
+      padding: 20px;
+    }
+    .controles {
+      display: flex; gap: 10px; flex-wrap: wrap; align-items: center; justify-content: center;
+      background: #fff; padding: 10px 14px; border-radius: 14px; box-shadow: 0 2px 10px rgba(0,0,0,.12);
+      font-size: 15px;
+    }
+    .controles button, .controles select {
+      font: inherit; min-height: 44px; padding: 8px 16px; border-radius: 999px;
+      border: 2px solid var(--verde); background: #fff; color: var(--verde); font-weight: 600;
+    }
+    .controles button.prim { background: var(--vermelho); border-color: var(--vermelho); color: #fff; }
+    .controles label { display: flex; align-items: center; gap: 6px; }
+
+    /* cartaz: proporção A (√2). 1em = 1/26 da largura */
+    .cartaz {
+      --w: 105mm;
+      width: var(--w);
+      height: calc(var(--w) * 1.41428);
+      font-size: calc(var(--w) / 26);
+      position: relative;
+      overflow: hidden;
+      background: var(--verde);
+      color: #fff;
+      display: flex; flex-direction: column; align-items: center;
+      text-align: center;
+      padding: 1.6em 2.2em 1.4em;
+      box-shadow: 0 8px 30px rgba(0,0,0,.25);
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    body.a5 .cartaz { --w: 148mm; }
+    .moldura { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    .moldura path { fill: none; stroke: var(--vermelho); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+    .cartaz > *:not(.moldura) { position: relative; }
+
+    .titulo { font-family: var(--mao); font-weight: 400; font-size: 4.4em; line-height: .95; margin: 0; }
+    .chamada { font-family: var(--mao); font-size: 1.9em; line-height: 1.05; margin: .55em 0 .45em; }
+    .qr {
+      background: #fff; padding: .45em; border-radius: .35em;
+      width: 13.2em; height: 13.2em;
+    }
+    .qr svg { display: block; width: 100%; height: 100%; }
+    .explica { font-size: .95em; line-height: 1.3; margin: .8em 0 0; text-transform: uppercase; letter-spacing: .12em; font-weight: 600; }
+    .rodape { margin-top: auto; font-family: var(--serif); font-size: .85em; line-height: 1.3; opacity: .92; }
+    .url { font-family: ui-monospace, monospace; font-size: .6em; opacity: .7; margin-top: .3em; word-break: break-all; }
+
+    /* economizar tinta */
+    body.claro .cartaz { background: #fff; color: var(--verde); }
+    body.claro .qr { border: .12em solid var(--verde); }
+
+    @media print {
+      body { background: none; padding: 0; display: block; min-height: 0; }
+      .controles { display: none; }
+      .cartaz { box-shadow: none; margin: 0; page-break-after: avoid; break-after: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="controles">
+    <label>Tamanho
+      <select id="tamanho">
+        <option value="A6">A6 (10,5 × 14,8 cm)</option>
+        <option value="A5">A5 (14,8 × 21 cm)</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="claro"> Economizar tinta</label>
+    <button type="button" class="prim" id="imprimir">🖨️ Imprimir</button>
+  </div>
+
+  <div class="cartaz" id="cartaz">
+    <svg class="moldura" id="moldura" viewBox="0 0 105 148.5" preserveAspectRatio="none" aria-hidden="true"><path id="moldura-path"/></svg>
+    <h1 class="titulo">Cookies</h1>
+    <p class="chamada">Pegou um cookie?<br>Escaneia aqui 🍪</p>
+    <div class="qr" id="qr"></div>
+    <p class="explica">Registra o que pegou e paga por Pix quando quiser</p>
+    <div class="rodape">
+      feitos com carinho<br>@docespimentas
+      <div class="url" id="url"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { qrSvg } from './js/qr.js';
+
+    const url = window.location.origin + '/';
+    document.getElementById('url').textContent = url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const svg = qrSvg(url, { margin: 1, ecc: 'Q', label: 'QR code para ' + url });
+    document.getElementById('qr').innerHTML = svg || '<p style="color:#000;padding:1em">Não carregou a biblioteca de QR. Recarregue a página.</p>';
+
+    // moldura vermelha "rabiscada": retângulo arredondado com borda ondulada
+    function moldura(w, h, inset, raio, amp, onda) {
+      const pts = [];
+      const x0 = inset, y0 = inset, x1 = w - inset, y1 = h - inset;
+      const segs = [
+        { t: 'l', a: [x0 + raio, y0], b: [x1 - raio, y0], n: [0, -1] },
+        { t: 'c', c: [x1 - raio, y0 + raio], a0: -Math.PI / 2, a1: 0 },
+        { t: 'l', a: [x1, y0 + raio], b: [x1, y1 - raio], n: [1, 0] },
+        { t: 'c', c: [x1 - raio, y1 - raio], a0: 0, a1: Math.PI / 2 },
+        { t: 'l', a: [x1 - raio, y1], b: [x0 + raio, y1], n: [0, 1] },
+        { t: 'c', c: [x0 + raio, y1 - raio], a0: Math.PI / 2, a1: Math.PI },
+        { t: 'l', a: [x0, y1 - raio], b: [x0, y0 + raio], n: [-1, 0] },
+        { t: 'c', c: [x0 + raio, y0 + raio], a0: Math.PI, a1: Math.PI * 1.5 },
+      ];
+      let s = 0;
+      const passo = 0.4;
+      for (const g of segs) {
+        if (g.t === 'l') {
+          const len = Math.hypot(g.b[0] - g.a[0], g.b[1] - g.a[1]);
+          for (let d = 0; d < len; d += passo) {
+            const f = d / len;
+            pts.push([g.a[0] + (g.b[0] - g.a[0]) * f, g.a[1] + (g.b[1] - g.a[1]) * f, g.n, s + d]);
+          }
+          s += len;
+        } else {
+          const len = raio * (g.a1 - g.a0);
+          for (let d = 0; d < len; d += passo) {
+            const ang = g.a0 + d / raio;
+            const n = [Math.cos(ang), Math.sin(ang)];
+            pts.push([g.c[0] + n[0] * raio, g.c[1] + n[1] * raio, n, s + d]);
+          }
+          s += len;
+        }
+      }
+      const k = Math.round(s / onda) || 1; // número inteiro de ondas para fechar sem emenda
+      const d = pts.map(([x, y, n, sd], i) => {
+        const off = amp * Math.sin((2 * Math.PI * k * sd) / s);
+        return (i ? 'L' : 'M') + (x + n[0] * off).toFixed(2) + ' ' + (y + n[1] * off).toFixed(2);
+      }).join('') + 'Z';
+      return d;
+    }
+    document.getElementById('moldura-path').setAttribute('d', moldura(105, 148.5, 6, 10, 1.6, 11));
+
+    const tamanho = document.getElementById('tamanho');
+    tamanho.addEventListener('change', () => {
+      document.body.classList.toggle('a5', tamanho.value === 'A5');
+      document.getElementById('page-size').textContent = `@page { size: ${tamanho.value}; margin: 0; }`;
+    });
+    document.getElementById('claro').addEventListener('change', e => document.body.classList.toggle('claro', e.target.checked));
+    document.getElementById('imprimir').addEventListener('click', async () => {
+      if (document.fonts) await document.fonts.ready;
+      window.print();
+    });
+  </script>
+</body>
+</html>

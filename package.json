@@ -1,0 +1,9 @@
+{
+  "name": "caixinha-de-cookies",
+  "private": true,
+  "type": "module",
+  "description": "Só para rodar os testes localmente (node --test). O site não tem build.",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  }
+}
