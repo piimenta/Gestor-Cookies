@@ -94,7 +94,7 @@ O `.vercelignore` deixa `apps-script/`, `tests/`, `README.md` e `package.json` f
 
 ### 6. Cartaz da caixa
 
-Abra `https://SEU-PROJETO.vercel.app/qr.html`, escolha A6 ou A5, imprima e cole na caixa.
+Abra `https://SEU-PROJETO.vercel.app/qr.html`, escolha o tamanho (A4 = folha inteira; A5/A6 saem numa folha A4 com linha para recortar), imprima e cole na caixa.
 Tem a opção "Economizar tinta" (fundo branco). Na janela de impressão, deixe a escala em 100% e
 marque "Gráficos de plano de fundo" se o fundo verde não aparecer.
 

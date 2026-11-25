@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat+Brush&display=swap">
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js" defer></script>
-  <style id="page-size">@page { size: A6; margin: 0; }</style>
+  <style>@page { size: A4; margin: 0; } /* o papel é sempre A4; A5/A6 saem centralizados para recortar */</style>
   <style>
     :root {
       --verde: #043303;
@@ -40,9 +40,9 @@
 
     /* cartaz: proporção A (√2). 1em = 1/26 da largura */
     .cartaz {
-      --w: 105mm;
+      --w: 210mm;
       width: var(--w);
-      height: calc(var(--w) * 1.41428);
+      height: calc(var(--w) * 1.414); /* um fio menor que a folha, para não vazar para uma 2ª página */
       font-size: calc(var(--w) / 26);
       position: relative;
       overflow: hidden;
@@ -55,7 +55,8 @@
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
-    body.a5 .cartaz { --w: 148mm; }
+    body.tam-A5 .cartaz { --w: 148mm; }
+    body.tam-A6 .cartaz { --w: 105mm; }
     .moldura { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
     .moldura path { fill: none; stroke: var(--vermelho); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
     .cartaz > *:not(.moldura) { position: relative; }
@@ -79,15 +80,18 @@
       body { background: none; padding: 0; display: block; min-height: 0; }
       .controles { display: none; }
       .cartaz { box-shadow: none; margin: 0; page-break-after: avoid; break-after: avoid; }
+      /* menores que A4: centralizado na folha, com linha tracejada para recortar */
+      body.tam-A5 .cartaz, body.tam-A6 .cartaz { margin: 15mm auto 0; outline: .3mm dashed #888; outline-offset: 0; }
     }
   </style>
 </head>
-<body>
+<body class="tam-A4">
   <div class="controles">
     <label>Tamanho
       <select id="tamanho">
-        <option value="A6">A6 (10,5 × 14,8 cm)</option>
-        <option value="A5">A5 (14,8 × 21 cm)</option>
+        <option value="A4" selected>A4 (folha inteira)</option>
+        <option value="A5">A5 (meia folha A4, para recortar)</option>
+        <option value="A6">A6 (1/4 de folha A4, para recortar)</option>
       </select>
     </label>
     <label><input type="checkbox" id="claro"> Economizar tinta</label>
@@ -159,8 +163,8 @@
 
     const tamanho = document.getElementById('tamanho');
     tamanho.addEventListener('change', () => {
-      document.body.classList.toggle('a5', tamanho.value === 'A5');
-      document.getElementById('page-size').textContent = `@page { size: ${tamanho.value}; margin: 0; }`;
+      document.body.classList.remove('tam-A4', 'tam-A5', 'tam-A6');
+      document.body.classList.add('tam-' + tamanho.value);
     });
     document.getElementById('claro').addEventListener('change', e => document.body.classList.toggle('claro', e.target.checked));
     document.getElementById('imprimir').addEventListener('click', async () => {
