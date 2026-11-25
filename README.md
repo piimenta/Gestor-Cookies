@@ -1,7 +1,7 @@
 # Caixinha de Cookies 🍪
 
 Controle de "fiado" para a caixa de cookies: um QR code na caixa abre o site, a pessoa diz quem é,
-o que pegou, e paga por Pix (copia e cola ou QR) quando quiser. Eu acompanho tudo num painel com PIN.
+o que pegou, e paga por Pix (copia e cola ou QR). Eu acompanho tudo num painel com PIN.
 
 ```
 [Celular] --QR--> [Site estático na Vercel] --fetch--> [Google Apps Script] --> [Google Planilha]
