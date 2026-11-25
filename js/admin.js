@@ -1,7 +1,10 @@
-import { api, brl, esc, parseValor, valorInput } from './api.js';
+import { api, brl, esc, parseValor, valorInput, modoDemo } from './api.js';
 
-// O PIN nunca fica no código: a pessoa digita, ele vai em cada requisição e o Apps Script confere.
+// Dois jeitos de entrar, quem decide é o Apps Script:
+// - Google (ADMIN_EMAILS configurado): login Google numa conta de admin → sessão de 30 dias neste aparelho.
+// - PIN: a pessoa digita, ele vai em cada requisição e o Apps Script confere. Nunca fica no código.
 const K_PIN = 'cookies.admin_pin';
+const K_ADM = 'cookies.admin_sessao';
 const SITE_URL = location.origin + '/#conta'; // link da cobrança já abre a tela de pagar
 
 const $ = id => document.getElementById(id);
@@ -9,6 +12,10 @@ const fmtData = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-dig
 const fmtDia = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit' });
 
 let pin = sessionStorage.getItem(K_PIN) || '';
+let admSessao = null;
+try { admSessao = JSON.parse(localStorage.getItem(K_ADM)); } catch { /* */ }
+let config = null; // resposta do init (client_id do Google, modo do painel)
+let modo = null;   // 'google' | 'pin'
 let resumo = null;
 let histNome = null;
 
@@ -41,10 +48,19 @@ function msgCobranca(nome, saldo, deveDesde) {
 }
 const linkWhats = msg => `https://wa.me/?text=${encodeURIComponent(msg)}`;
 
-const adm = (action, payload = {}) => api(action, { ...payload, pin });
+const adm = (action, payload = {}) =>
+  api(action, { ...payload, ...(modo === 'google' ? { admin_sessao: admSessao?.token } : { pin }) });
 
-function isErroPin(msg) {
-  return /PIN|tentativas/i.test(msg);
+/** Erro de acesso (PIN errado, sessão vencida, conta sem acesso): volta para a tela de entrar. */
+function isErroPin(e) {
+  return e.code === 'admin' || /PIN|tentativas/i.test(e.message);
+}
+
+function esquecerAcesso() {
+  sessionStorage.removeItem(K_PIN);
+  localStorage.removeItem(K_ADM);
+  pin = '';
+  admSessao = null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -56,9 +72,64 @@ function mostrarLogin(msg) {
   $('tela-painel').hidden = true;
   $('topo-acoes').hidden = true;
   erro(msg || '');
+  const google = modo === 'google';
+  $('admin-google').hidden = !google;
+  $('form-pin').hidden = google;
+  if (google) return mostrarBotaoGoogle();
   $('pin').value = '';
   $('pin').focus();
 }
+
+let gisPromise = null;
+function carregarGoogle() {
+  gisPromise ||= new Promise((ok, falha) => {
+    const sc = document.createElement('script');
+    sc.src = 'https://accounts.google.com/gsi/client';
+    sc.async = true;
+    sc.onload = ok;
+    sc.onerror = () => { gisPromise = null; falha(new Error('Não consegui carregar o login do Google.')); };
+    document.head.appendChild(sc);
+  });
+  return gisPromise;
+}
+
+async function mostrarBotaoGoogle() {
+  if (modoDemo) {
+    $('admin-demo-login').hidden = false;
+    $('admin-google-btn').hidden = true;
+    return;
+  }
+  try {
+    await carregarGoogle();
+    google.accounts.id.initialize({ client_id: config.login.client_id, callback: r => entrarGoogle(r.credential), auto_select: true });
+    const el = $('admin-google-btn');
+    el.innerHTML = '';
+    google.accounts.id.renderButton(el, { theme: 'outline', size: 'large', text: 'continue_with', shape: 'pill', locale: 'pt-BR', width: Math.min(320, el.clientWidth || 320) });
+  } catch (e) {
+    erro(e.message);
+  }
+}
+
+async function entrarGoogle(credential) {
+  erro('');
+  try {
+    const r = await api('adminLogin', { credential });
+    admSessao = { token: r.admin_sessao, email: r.email };
+    localStorage.setItem(K_ADM, JSON.stringify(admSessao));
+    await carregar();
+  } catch (e) {
+    try { window.google?.accounts?.id?.disableAutoSelect(); } catch { /* */ }
+    erro(e.message);
+  }
+}
+
+$('admin-demo-login').addEventListener('submit', e => {
+  e.preventDefault();
+  const email = $('admin-demo-email').value.trim().toLowerCase();
+  const b64 = o => btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const info = { email, name: email, aud: config.login.client_id, iss: 'https://accounts.google.com', email_verified: 'true', exp: Math.floor(Date.now() / 1000) + 3600 };
+  entrarGoogle('demo.' + b64(info) + '.demo');
+});
 
 $('form-pin').addEventListener('submit', async e => {
   e.preventDefault();
@@ -73,8 +144,8 @@ $('form-pin').addEventListener('submit', async e => {
 });
 
 $('btn-sair').addEventListener('click', () => {
-  sessionStorage.removeItem(K_PIN);
-  pin = '';
+  esquecerAcesso();
+  try { window.google?.accounts?.id?.disableAutoSelect(); } catch { /* */ }
   mostrarLogin();
 });
 
@@ -87,15 +158,15 @@ async function carregar() {
   btn.disabled = true;
   try {
     resumo = await adm('adminResumo');
-    sessionStorage.setItem(K_PIN, pin);
+    if (modo === 'pin') sessionStorage.setItem(K_PIN, pin);
     erro('');
     $('tela-pin').hidden = true;
     $('tela-painel').hidden = false;
     $('topo-acoes').hidden = false;
     render();
   } catch (e) {
-    if (isErroPin(e.message)) {
-      sessionStorage.removeItem(K_PIN);
+    if (isErroPin(e)) {
+      esquecerAcesso();
       mostrarLogin(e.message);
     } else {
       erro(`Não consegui carregar. (${e.message})`);
@@ -171,7 +242,8 @@ function render() {
       </div>`).join('')
     : '<p class="vazio">Nenhum cliente ainda.</p>';
 
-  $('atualizado').textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+  $('atualizado').textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` +
+    (modo === 'google' && admSessao?.email ? ` · entrou como ${admSessao.email}` : '');
 }
 
 /* ------------------------------------------------------------------ */
@@ -186,8 +258,8 @@ async function executar(btn, fn, okMsg) {
     await carregar();
     if (histNome && $('dlg-hist').open) await abrirHistorico(histNome);
   } catch (e) {
-    if (isErroPin(e.message)) {
-      sessionStorage.removeItem(K_PIN);
+    if (isErroPin(e)) {
+      esquecerAcesso();
       document.querySelectorAll('dialog[open]').forEach(d => d.close());
       return mostrarLogin(e.message);
     }
@@ -369,5 +441,15 @@ $('dlg-hist').addEventListener('close', () => { histNome = null; });
 
 /* ------------------------------------------------------------------ */
 
-if (pin) carregar();
-else mostrarLogin();
+async function iniciar() {
+  try {
+    config = await api('init');
+  } catch (e) {
+    erro(`Não consegui carregar. (${e.message})`);
+    return;
+  }
+  modo = config.admin_google ? 'google' : 'pin';
+  if (modo === 'google' ? admSessao?.token : pin) carregar();
+  else mostrarLogin();
+}
+iniciar();

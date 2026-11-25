@@ -29,7 +29,17 @@
 
     <!-- Login -->
     <section id="tela-pin" hidden>
-      <form class="card" id="form-pin">
+      <div class="card login-card" id="admin-google" hidden>
+        <h2>Entrar no painel</h2>
+        <p>Entre com a sua conta Google de admin.</p>
+        <div id="admin-google-btn" class="google-btn"></div>
+        <form id="admin-demo-login" class="demo-login" hidden>
+          <label for="admin-demo-email">E-mail (modo teste, sem Google de verdade)</label>
+          <input id="admin-demo-email" class="campo" type="email" placeholder="admin@exemplo.com" autocomplete="off" required>
+          <button class="btn btn-bloco">Entrar (modo teste)</button>
+        </form>
+      </div>
+      <form class="card" id="form-pin" hidden>
         <h2>Entrar</h2>
         <label for="pin">PIN</label>
         <input id="pin" class="campo" type="password" inputmode="numeric" autocomplete="current-password"

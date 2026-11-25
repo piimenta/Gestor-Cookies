@@ -6,6 +6,8 @@
  * O PIN do admin fica em Configurações do projeto → Propriedades do script → ADMIN_PIN.
  * Login com Google (opcional): crie GOOGLE_CLIENT_ID nas Propriedades do script. Com ele,
  * registrar/ver conta/pagar passa a exigir login, e cada e-mail fica ligado a um nome.
+ * Painel pelo Google (opcional): crie ADMIN_EMAILS (e-mails separados por vírgula). Com ele,
+ * o painel só abre com login Google dessas contas e o PIN deixa de valer.
  */
 
 const SHEETS = {
@@ -22,6 +24,7 @@ const MAX_PAGAMENTO = 10000;
 const PIN_MAX_FALHAS = 10;              // tentativas erradas antes de bloquear
 const PIN_BLOQUEIO_SEG = 15 * 60;       // bloqueio de 15 minutos
 const SESSAO_DIAS = 180;                // login com Google vale 180 dias no celular
+const SESSAO_ADMIN_DIAS = 30;           // login do painel vale 30 dias
 
 const ACTIONS = {
   // públicas
@@ -32,6 +35,7 @@ const ACTIONS = {
   jaPaguei: actionJaPaguei_,
   login: actionLogin_,
   vincular: actionVincular_,
+  adminLogin: actionAdminLogin_,
   // admin (exigem pin)
   adminResumo: admin_(actionAdminResumo_),
   adminHistorico: admin_(actionAdminHistorico_),
@@ -92,6 +96,7 @@ function actionInit_() {
     // com login, só aparecem os nomes que ainda não estão ligados a uma conta Google
     pessoas: pessoas_().filter(p => !cid || !p.email).map(p => p.nome).sort((a, b) => a.localeCompare(b, 'pt-BR')),
     login: cid ? { client_id: cid } : null,
+    admin_google: adminGoogleAtivo_(), // o painel diz se mostra "Continuar com Google" ou o PIN
     pix: {
       chave: String(c.pix_chave || '').trim(),
       nome: String(c.pix_nome || '').trim(),
@@ -285,21 +290,28 @@ function verificarGoogle_(credential) {
 
 /* Sessão = base64(email|validade).assinatura HMAC, com segredo guardado nas Propriedades do script. */
 
-function criarSessao_(email) {
-  const payload = email + '|' + (Date.now() + SESSAO_DIAS * 86400000);
+function criarSessao_(sujeito, dias) {
+  const payload = sujeito + '|' + (Date.now() + (dias || SESSAO_DIAS) * 86400000);
   return b64_(payload) + '.' + assinar_(payload);
 }
 
-function emailDaSessao_(sessao) {
+/** Confere assinatura e validade; devolve o "sujeito" (e-mail, ou "adm:e-mail" no painel) ou null. */
+function lerSessao_(sessao) {
   const partes = String(sessao || '').split('.');
-  const invalida = () => fail_('Sua sessão expirou. Entra com o Google de novo.', 'sessao');
-  if (partes.length !== 2 || !partes[0] || !partes[1]) invalida();
+  if (partes.length !== 2 || !partes[0] || !partes[1]) return null;
   let payload;
-  try { payload = deB64_(partes[0]); } catch (e) { invalida(); }
-  if (assinar_(payload) !== partes[1]) invalida();
-  const [email, validade] = payload.split('|');
-  if (!email || !(Number(validade) > Date.now())) invalida();
-  return email;
+  try { payload = deB64_(partes[0]); } catch (e) { return null; }
+  if (assinar_(payload) !== partes[1]) return null;
+  const i = payload.lastIndexOf('|');
+  const sujeito = payload.slice(0, i);
+  if (i < 1 || !(Number(payload.slice(i + 1)) > Date.now())) return null;
+  return sujeito;
+}
+
+function emailDaSessao_(sessao) {
+  const sujeito = lerSessao_(sessao);
+  if (!sujeito || sujeito.indexOf('adm:') === 0) fail_('Sua sessão expirou. Entra com o Google de novo.', 'sessao');
+  return sujeito;
 }
 
 function segredo_() {
@@ -351,9 +363,35 @@ function autorizar() {
 
 function admin_(fn) {
   return function (req) {
-    requirePin_(req);
+    requireAdmin_(req);
     return fn(req);
   };
+}
+
+function adminEmails_() {
+  return String(PropertiesService.getScriptProperties().getProperty('ADMIN_EMAILS') || '')
+    .split(/[,;\s]+/).map(e => e.trim().toLowerCase()).filter(Boolean);
+}
+
+/** Painel pelo Google só quando há ADMIN_EMAILS e o login com Google está configurado. */
+function adminGoogleAtivo_() {
+  return adminEmails_().length > 0 && !!clientId_();
+}
+
+function requireAdmin_(req) {
+  if (!adminGoogleAtivo_()) return requirePin_(req);
+  const sujeito = lerSessao_(req.admin_sessao);
+  const email = sujeito && sujeito.indexOf('adm:') === 0 ? sujeito.slice(4) : null;
+  if (!email) fail_('Entra com o Google para abrir o painel.', 'admin');
+  if (adminEmails_().indexOf(email) < 0) fail_('A conta ' + email + ' não tem acesso ao painel.', 'admin');
+}
+
+/** Login do painel: confere o Google e se o e-mail está em ADMIN_EMAILS. */
+function actionAdminLogin_(req) {
+  if (!adminGoogleAtivo_()) fail_('O painel está usando PIN (ADMIN_EMAILS não configurado).');
+  const g = verificarGoogle_(req.credential);
+  if (adminEmails_().indexOf(g.email) < 0) fail_('A conta ' + g.email + ' não tem acesso ao painel.', 'admin');
+  return { admin_sessao: criarSessao_('adm:' + g.email, SESSAO_ADMIN_DIAS), email: g.email };
 }
 
 function requirePin_(req) {
@@ -361,10 +399,10 @@ function requirePin_(req) {
   if (!pin) fail_('ADMIN_PIN não configurado nas Propriedades do script.');
   const cache = CacheService.getScriptCache();
   const falhas = Number(cache.get('pin_falhas') || 0);
-  if (falhas >= PIN_MAX_FALHAS) fail_('Muitas tentativas erradas. Espera 15 minutos.');
+  if (falhas >= PIN_MAX_FALHAS) fail_('Muitas tentativas erradas. Espera 15 minutos.', 'admin');
   if (String(req.pin == null ? '' : req.pin).trim() !== pin) {
     cache.put('pin_falhas', String(falhas + 1), PIN_BLOQUEIO_SEG);
-    fail_('PIN incorreto.');
+    fail_('PIN incorreto.', 'admin');
   }
 }
 

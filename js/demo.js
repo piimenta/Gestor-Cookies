@@ -66,7 +66,7 @@ const carregar = () => {
 function propriedades() {
   let p = {};
   try { p = JSON.parse(localStorage.getItem(PROPS_KEY)) || {}; } catch { /* */ }
-  return { ADMIN_PIN: PIN, GOOGLE_CLIENT_ID: CLIENT_ID, ...p };
+  return { ADMIN_PIN: PIN, GOOGLE_CLIENT_ID: CLIENT_ID, ADMIN_EMAILS: 'admin@exemplo.com', ...p };
 }
 function salvarProp(k, v) {
   let p = {};
@@ -194,7 +194,7 @@ function aviso() {
   const q = new URLSearchParams(location.search).has('demo') ? '?demo' : '';
   el.style.cssText = 'background:#ffd54a;color:#3a2a00;font:600 14px/1.35 system-ui,sans-serif;padding:8px 12px;' +
     'display:flex;gap:6px 12px;align-items:center;justify-content:center;flex-wrap:wrap;text-align:center';
-  el.innerHTML = '<span>🧪 Modo teste local: os dados ficam só neste navegador. PIN do painel: <b>' + PIN + '</b> · Login: qualquer e-mail (ana@exemplo.com já é da Ana Paula)</span>' +
+  el.innerHTML = '<span>🧪 Modo teste local: os dados ficam só neste navegador. Painel: entre como <b>admin@exemplo.com</b> · Cliente: qualquer e-mail (ana@exemplo.com já é da Ana Paula)</span>' +
     '<span style="display:flex;gap:12px"><a href="index.html' + q + '" style="color:inherit">Cliente</a>' +
     '<a href="admin.html' + q + '" style="color:inherit">Painel</a><a href="qr.html' + q + '" style="color:inherit">Cartaz</a>' +
     '<button type="button" style="font:inherit;background:none;border:0;padding:0;color:inherit;text-decoration:underline;cursor:pointer">Zerar dados</button></span>';

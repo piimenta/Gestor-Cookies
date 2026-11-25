@@ -131,6 +131,18 @@ e-mail); depois o site já abre logado (180 dias). Enquanto não fizer este pass
 
 Para desligar o login, apague a propriedade `GOOGLE_CLIENT_ID`.
 
+### Painel pelo Google (no lugar do PIN)
+
+Com o login com Google já configurado, crie também a propriedade **`ADMIN_EMAILS`** com o seu e-mail
+(mais de um: separe por vírgula). A partir daí:
+
+- o painel mostra **Continuar com Google** e só abre para essas contas (qualquer outra é recusada);
+- o **PIN deixa de valer** (mesmo quem souber o PIN não entra);
+- o login do painel vale **30 dias** naquele aparelho; **Sair** apaga na hora;
+- tirar um e-mail da lista corta o acesso dele na próxima ação.
+
+Se um dia o login do Google der problema, apague `ADMIN_EMAILS`: o painel volta a pedir o PIN.
+
 ## Dia a dia
 
 - **Alguém pagou por Pix e clicou "Já paguei":** aparece em destaque no topo do painel.
@@ -183,7 +195,7 @@ Enquanto `js/config.js` não tiver a URL real, o site entra no **modo teste**: u
 e o próprio `apps-script/Code.gs` roda dentro do navegador com uma planilha falsa guardada no `localStorage`
 (com algumas pessoas e compras de exemplo). Dá para testar tudo: registrar, desfazer, Pix, "Já paguei", painel.
 
-- PIN do painel no modo teste: **1234**
+- Painel no modo teste: entre como **admin@exemplo.com** (o modo teste usa o login do painel pelo Google).
 - O modo teste já vem com o login ligado, com um "Google" de mentira: entre com qualquer e-mail
   (`ana@exemplo.com` já é da Ana Paula).
 - **Zerar dados** (na faixa amarela) apaga tudo e recomeça com os exemplos.

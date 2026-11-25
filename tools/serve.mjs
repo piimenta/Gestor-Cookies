@@ -49,7 +49,7 @@ server.listen(PORT, () => {
   const ips = Object.values(networkInterfaces()).flat().filter(i => i && i.family === 'IPv4' && !i.internal).map(i => i.address);
   console.log(`\n🍪 Cookies rodando em:\n`);
   console.log(`   Cliente:  http://localhost:${PORT}/`);
-  console.log(`   Painel:   http://localhost:${PORT}/admin.html   (PIN do modo teste: 1234)`);
+  console.log(`   Painel:   http://localhost:${PORT}/admin.html   (modo teste: entre como admin@exemplo.com)`);
   console.log(`   Cartaz:   http://localhost:${PORT}/qr.html`);
   for (const ip of ips) console.log(`   No celular (mesma rede): http://${ip}:${PORT}/?demo`);
   console.log(`\nCtrl+C para parar.\n`);

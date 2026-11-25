@@ -46,7 +46,7 @@ function tokenGoogle({ email = 'ana@gmail.com', name = 'Ana Google', aud = CLIEN
 const bytes = buf => Array.from(buf, b => (b > 127 ? b - 256 : b)); // byte[] do Apps Script é com sinal
 const unbytes = arr => Buffer.from(arr.map(b => b & 255));
 
-function criarAmbiente({ pin = PIN, clientId = null } = {}) {
+function criarAmbiente({ pin = PIN, clientId = null, adminEmails = null } = {}) {
   const sheets = [new Sheet('Página1')];
   const ss = {
     getSheetByName: n => sheets.find(s => s.name === n) || null,
@@ -57,6 +57,7 @@ function criarAmbiente({ pin = PIN, clientId = null } = {}) {
   const cache = new Map();
   const props = pin ? { ADMIN_PIN: pin } : {};
   if (clientId) props.GOOGLE_CLIENT_ID = clientId;
+  if (adminEmails) props.ADMIN_EMAILS = adminEmails;
   const ctx = vm.createContext({
     console: { log() {}, warn() {}, error() {} },
     SpreadsheetApp: { getActive: () => ss, flush() {} },
@@ -576,4 +577,61 @@ test('login: admin reserva o nome para um e-mail; a pessoa entra direto na conta
   assert.match(call('adminVincularEmail', { pin: PIN, nome: 'Fulano', email: 'nao-e-email' }).error, /E-mail inválido/);
   ok('adminVincularEmail', { pin: PIN, nome: 'Novo Colega', email: 'novo@empresa.com' }); // cria o cliente já reservado
   assert.equal(ok('login', { credential: tokenGoogle({ email: 'novo@empresa.com' }) }).nome, 'Novo Colega');
+});
+
+/* ----------------------------- painel pelo Google ----------------------------- */
+
+const ADM = { clientId: CLIENT_ID, adminEmails: 'Dono@Gmail.com, socia@gmail.com' };
+
+test('painel Google: com ADMIN_EMAILS o PIN deixa de valer', () => {
+  const { ok, call } = criarAmbiente(ADM);
+  assert.equal(ok('init').admin_google, true);
+  const r = call('adminResumo', { pin: PIN });
+  assert.equal(r.code, 'admin');
+  assert.match(r.error, /Entra com o Google/);
+});
+
+test('painel Google: só as contas da lista entram; a sessão de admin abre o painel', () => {
+  const { ok, call } = criarAmbiente(ADM);
+  const fora = call('adminLogin', { credential: tokenGoogle({ email: 'curioso@gmail.com' }) });
+  assert.equal(fora.code, 'admin');
+  assert.match(fora.error, /curioso@gmail.com não tem acesso/);
+
+  const a = ok('adminLogin', { credential: tokenGoogle({ email: 'dono@gmail.com' }) });
+  assert.equal(a.email, 'dono@gmail.com');
+  assert.ok(Array.isArray(ok('adminResumo', { admin_sessao: a.admin_sessao }).clientes));
+  const b = ok('adminLogin', { credential: tokenGoogle({ email: 'SOCIA@gmail.com' }) });
+  ok('adminAdicionarPessoa', { admin_sessao: b.admin_sessao, nome: 'Zeca' });
+  assert.ok(ok('init').pessoas.includes('Zeca'));
+});
+
+test('painel Google: sessão de cliente não abre o painel e sessão de admin não vira cliente', () => {
+  const { ok, call } = criarAmbiente(ADM);
+  // o próprio dono logado como cliente: essa sessão não serve para o painel
+  const cli = ok('login', { credential: tokenGoogle({ email: 'dono@gmail.com' }) }).sessao;
+  assert.equal(call('adminResumo', { admin_sessao: cli }).code, 'admin');
+  const adm = ok('adminLogin', { credential: tokenGoogle({ email: 'dono@gmail.com' }) }).admin_sessao;
+  assert.equal(call('saldo', { sessao: adm }).code, 'sessao');
+  assert.equal(call('adminResumo', { admin_sessao: adm.slice(0, -2) + 'xx' }).code, 'admin');
+});
+
+test('painel Google: tirar alguém do ADMIN_EMAILS corta o acesso na hora; sem a lista volta o PIN', () => {
+  const { ok, call, props } = criarAmbiente(ADM);
+  const adm = ok('adminLogin', { credential: tokenGoogle({ email: 'socia@gmail.com' }) }).admin_sessao;
+  props.ADMIN_EMAILS = 'dono@gmail.com';
+  assert.match(call('adminResumo', { admin_sessao: adm }).error, /não tem acesso/);
+  delete props.ADMIN_EMAILS;
+  assert.equal(ok('init').admin_google, false);
+  ok('adminResumo', { pin: PIN });
+  assert.match(call('adminLogin', { credential: tokenGoogle({ email: 'dono@gmail.com' }) }).error, /usando PIN/);
+});
+
+test('painel Google: sessão de admin vence em 30 dias', () => {
+  const { ok, call, ctx } = criarAmbiente(ADM);
+  const venc = 'adm:dono@gmail.com|' + (Date.now() - 1);
+  assert.equal(call('adminResumo', { admin_sessao: ctx.b64_(venc) + '.' + ctx.assinar_(venc) }).code, 'admin');
+  const nova = ok('adminLogin', { credential: tokenGoogle({ email: 'dono@gmail.com' }) }).admin_sessao;
+  const validade = Number(Buffer.from(nova.split('.')[0], 'base64url').toString().split('|')[1]);
+  const dias = (validade - Date.now()) / 86400000;
+  assert.ok(dias > 29.9 && dias <= 30, `validade de ${dias} dias`);
 });
