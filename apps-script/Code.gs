@@ -644,6 +644,7 @@ function setup() {
       ['cacaublack', 'Cacau Black', 12, '🖤', true],
       ['ninhonutella', 'Ninho & Nutella', 12, '🥛', true],
       ['farinhalactea', 'Farinha Láctea', 12, '🌾', true],
+      ['pistache', 'Pistache', 16, '💚', true],
     ],
     Pessoas: [
       ['Fulano', new Date(), 'lista'],

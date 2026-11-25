@@ -87,14 +87,14 @@ test('setup cria as abas, cabeçalhos e o cardápio; remove a aba vazia padrão'
   const { ss, tabela } = criarAmbiente();
   const nomes = ss.getSheets().map(s => s.getName());
   assert.deepEqual(nomes, ['Config', 'Sabores', 'Pessoas', 'Registros', 'Pagamentos']);
-  assert.equal(tabela('Sabores').length, 9);
+  assert.equal(tabela('Sabores').length, 10);
   assert.deepEqual(ss.getSheetByName('Registros').data[0], ['id', 'data', 'nome', 'sabor_id', 'sabor_nome', 'qtd', 'preco_unit', 'total', 'status', 'device_id']);
 });
 
 test('setup é idempotente (não duplica dados)', () => {
   const { ctx, tabela } = criarAmbiente();
   ctx.setup();
-  assert.equal(tabela('Sabores').length, 9);
+  assert.equal(tabela('Sabores').length, 10);
   assert.equal(tabela('Config').length, 5);
 });
 
@@ -108,7 +108,7 @@ test('init devolve título, sabores ativos, pessoas e pix', () => {
   ss.getSheetByName('Sabores').set(10, 5, false); // desativa farinhalactea (linha 10)
   const d = ok('init');
   assert.equal(d.titulo, 'Cookies');
-  assert.equal(d.sabores.length, 8);
+  assert.equal(d.sabores.length, 9);
   assert.deepEqual(d.sabores[0], { id: 'tradicional', nome: 'Tradicional', preco: 10, emoji: '🍪' });
   assert.deepEqual(d.pessoas, ['Fulano']);
   assert.equal(d.pix.chave, '45281715895');
